@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,9 @@ func insideRepo(dir string) bool {
 // the number of distinct colours along the glyphs (1-bit text has 2).
 // E2E_CROPS=<dir outside any repository> saves the crops as PNG.
 func TestTextPixels(t *testing.T) {
+	if only := os.Getenv("E2E_BROWSERS"); only != "" && !strings.Contains(only, "chromium") {
+		t.Skip("measured in Chromium; E2E_BROWSERS excludes it")
+	}
 	crops := os.Getenv("E2E_CROPS")
 	if crops != "" && insideRepo(crops) {
 		t.Fatalf("E2E_CROPS %s is inside a git work tree", crops)
