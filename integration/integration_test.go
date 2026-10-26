@@ -29,6 +29,8 @@ type rig struct {
 	app    *vm.App
 	eng    *engine.HTTP
 	screen *vt.Screen
+	// noPoll: only events refresh (no polling in until).
+	noPoll bool
 }
 
 func newRig(t *testing.T) *rig {
@@ -48,7 +50,7 @@ func (r *rig) until(what string, cond func() bool) {
 	deadline := time.Now().Add(30 * time.Second)
 	poll := time.Now()
 	for !cond() {
-		if time.Since(poll) > 100*time.Millisecond {
+		if !r.noPoll && time.Since(poll) > 100*time.Millisecond {
 			r.app.Refresh() // what RunLive's polling does
 			poll = time.Now()
 		}
@@ -221,38 +223,65 @@ func TestTerminalAndGUIShareTheEngine(t *testing.T) {
 	})
 }
 
-func TestUnservedEndpointsAreUnsupported(t *testing.T) {
+// TestEventsVolumesStats: with engine v0.8.0 the dashboard follows the
+// event stream (no polling), manages volumes, mounts them with run -v, and
+// reads a running container's stats.
+func TestEventsVolumesStats(t *testing.T) {
 	r := newRig(t)
+	r.noPoll = true
 	ctx := context.Background()
-	if _, err := r.eng.Volumes(ctx); !errors.Is(err, engine.ErrUnsupported) {
-		t.Errorf("Volumes: %v", err)
-	}
-	// Disk usage is served since engine v0.4.0, with the engine's Storage.
-	if df, err := r.eng.DiskUsage(ctx); err != nil || df.Storage == nil {
-		t.Errorf("DiskUsage: %+v %v", df, err)
-	}
-	if err := r.eng.Events(ctx, func(engine.Event) {}); !errors.Is(err, engine.ErrUnsupported) {
-		t.Errorf("Events: %v", err)
-	}
 	// An API 404 (JSON) is an ordinary error, not "unsupported".
 	if _, err := r.eng.InspectContainer(ctx, "nope"); err == nil || errors.Is(err, engine.ErrUnsupported) || !api.IsNotFound(err) {
 		t.Errorf("Inspect: %v", err)
 	}
-	r.refresh()
-	if r.app.Volumes.Supported.Get() != vm.VolumesUnsupported || !strings.Contains(r.app.Volumes.Message.Get(), "engine test does not yet") {
-		t.Errorf("volumes: %q", r.app.Volumes.Message.Get())
-	}
-	if !strings.HasPrefix(r.app.Storage.Get(), "storage 0B · ") {
-		t.Errorf("storage = %q", r.app.Storage.Get())
-	}
-	ctx, cancel := context.WithCancel(ctx)
+	lctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() { r.app.RunLive(ctx, 10*time.Millisecond); close(done) }()
-	r.until("polling", func() bool {
-		return strings.HasPrefix(r.app.Live.Get(), "polling every 10ms (the engine serves no GET /events)")
+	go func() { r.app.RunLive(lctx, time.Hour); close(done) }()
+	defer func() { cancel(); <-done }()
+	r.until("live", func() bool { return r.app.Live.Get() == "live (GET /events)" && r.app.Refreshed.Get() > 0 })
+	if !strings.HasPrefix(r.app.Storage.Get(), "storage 0B · ") || r.app.Volumes.Supported.Get() != vm.VolumesSupported {
+		t.Errorf("storage %q, volumes %d", r.app.Storage.Get(), r.app.Volumes.Supported.Get())
+	}
+
+	// A volume created behind the dashboard's back shows up through an event.
+	if _, err := r.eng.VolumeCreate(ctx, api.VolumeCreateOptions{Name: "shared"}); err != nil {
+		t.Fatal(err)
+	}
+	r.until("volume event", func() bool { _, ok := r.app.Volumes.Find("shared"); return ok })
+	r.app.Volumes.NewName.Set("scratch")
+	r.app.Volumes.Create()
+	r.until("created", func() bool { _, ok := r.app.Volumes.Find("scratch"); return ok })
+
+	// Run with -v from the dialog: the mount shows in the detail, stats stream.
+	f := r.app.Images.Run
+	f.Reset("clock")
+	f.Name.Set("ticker")
+	f.Command.Set("-interval 50ms")
+	f.Volumes.Set("shared:/data")
+	if !f.Start() {
+		t.Fatal(f.Error.Get())
+	}
+	r.until("ticker running", func() bool { row, ok := r.container("ticker"); return ok && row.Running() })
+	row, _ := r.container("ticker")
+	r.app.Detail.Open(row.ID)
+	r.until("mount", func() bool {
+		m := r.app.Detail.Mounts.Slice()
+		return len(m) == 1 && strings.HasPrefix(m[0], "volume shared -> /data (rw)")
 	})
-	cancel()
-	<-done
+	r.until("stats", func() bool { return r.app.Detail.MemHistory.Len() >= 2 && r.app.Detail.Memory.Get() > 0 })
+	if r.app.Detail.CPU.Get() != "--" || r.app.Detail.CPUNote.Get() == "" {
+		t.Errorf("cpu %q (%q)", r.app.Detail.CPU.Get(), r.app.Detail.CPUNote.Get())
+	}
+	r.until("used by", func() bool { v, _ := r.app.Volumes.Find("shared"); return v.Used == "1 container(s)" })
+
+	// A volume in use refuses removal; stop and remove the container, prune.
+	r.app.Volumes.Remove("shared", false)
+	r.until("in use", func() bool { return r.app.Error.Get() != "" && r.app.Pending.Get() == 0 })
+	r.app.Containers.Remove(row)
+	r.until("gone (destroy event)", func() bool { _, ok := r.container("ticker"); return !ok })
+	r.app.Volumes.Prune(true)
+	r.until("pruned", func() bool { return strings.HasPrefix(r.app.Volumes.Notice.Get(), "pruned 2 volume(s)") })
+	r.until("no volumes", func() bool { return r.app.Volumes.Rows.Len() == 0 })
 }
 
 // TestManyContainers fills the engine with 200 containers and checks the

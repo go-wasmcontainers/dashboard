@@ -24,20 +24,21 @@ demo with its own engine in a Web Worker and three demo images (`hello`,
 `clock`, `fail`). In the Terminal view: `wctr run -d --name web clock`, then
 watch it in Containers.
 
-> **Status: M1, on engine v0.5.0.** Containers, container detail, images (pull, run, remove),
-> volumes (waiting for the engine), status bar and terminal work in Chromium
-> (tested with Playwright, both with real isolation headers and with the
-> service worker GitHub Pages needs).
+> **Status: M1, on engine v0.8.0.** Containers (with stats), images, volumes,
+> status bar and terminal, kept current by the engine's event stream. Tested
+> with Playwright in Chromium (isolation headers and the service worker
+> GitHub Pages needs); the Pages workflow also drives the live page in
+> Chromium and Firefox.
 
 ## What it shows
 
 | View | |
 |---|---|
-| **Containers** | name, image, state (coloured: running, exited 0, exited ≠ 0, created), status, created, ID; filter running/all, search, sort by any column; Start, Stop, Restart, Remove on the selected container (the engine's `/start`, `/stop`, `/restart` and `DELETE`: `wctr start`, `wctr stop`, `wctr restart`, `wctr rm`). Detail pane: **Logs** (follow on/off; ANSI colours rendered, stderr in red), **Inspect** (the inspect document as an indented tree, in its own key order), **Environment**, **Mounts**. |
-| **Images** | repository:tag, image ID, digest, size, created; **Pull…** (progress lines), **Run…** (image, name, command, environment, entrypoint, working dir, memory, `--rm`, mirroring `wctr run -d`, with the command line shown live as you type), Remove (Force). |
-| **Volumes** | the engine's volumes once it serves `GET /volumes`; until then the view says what it needs — never invented rows. |
+| **Containers** | name, image, state (coloured: running, exited 0, exited ≠ 0, created), status, created, ID; filter running/all, search, sort by any column; Start, Stop, Restart, Remove on the selected container (the engine's `/start`, `/stop`, `/restart` and `DELETE`: `wctr start`, `wctr stop`, `wctr restart`, `wctr rm`). Detail pane: **Logs** (follow on/off; ANSI colours rendered, stderr in red), **Inspect** (the inspect document as an indented tree, in its own key order), **Environment**, **Mounts** (`volume data -> /data (rw)`), **Stats** (`wctr stats`: a memory gauge against the container's limit, a sparkline of the last 60 readings, bytes written, layer and log size, pids; CPU shows `--` with the engine's reason, since a wasm guest's CPU is not measured and 0% would read as idle). |
+| **Images** | repository:tag, image ID, digest, size, created; **Pull…** (progress lines), **Run…** (image, name, command, environment, entrypoint, working dir, memory, volumes `-v NAME:/path[:ro]`, `--rm`, mirroring `wctr run -d`, with the command line shown live as you type), Remove (Force). |
+| **Volumes** | name, driver, mountpoint, created, size, how many containers use it; Create (`wctr volume create NAME`), the selected volume's inspect tree, Remove (Force: `wctr volume rm -f NAME`), Prune (All unused: `wctr volume prune -a -f`), with what it reclaimed. An engine older than v0.8.0 gets a message instead — never invented rows. |
 | **Terminal** | `wctr` run in-process against the same engine, with the engine's line editor (`cli/lineedit`: history, Ctrl-R, Tab completion of commands, flags and container names). |
-| status bar | engine version and API, counts, storage from `GET /system/df` (images and volumes, and where the engine keeps its state and how full it is — `IndexedDB 2MB of 1GB (persistent)`, or `none` for an in-memory engine), how it keeps up (`GET /events` or polling). |
+| status bar | engine version and API, counts, storage from `GET /system/df` (images and volumes, and where the engine keeps its state and how full it is — `IndexedDB 2MB of 1GB (persistent)`, or `none` for an in-memory engine), how it keeps up: `live (GET /events)`; when the engine cuts the stream (a slow reader) or the connection breaks, the dashboard resynchronises and reconnects from the last event's time, backing off; an engine without the stream is polled every 2 s. |
 
 Wherever the wctr in use has no command for an action, the footer shows the
 API call instead (`POST /containers/web/stop`, with a note), and switches to
@@ -95,8 +96,8 @@ sets `window.__wctrEngine` to that worker and runs `dashboard.wasm` on a
 
 ## Performance
 
-A full frame (1280×800) with 200 containers and 100 images: 0.83 ms
-(containers), 0.89 ms (images), 0.71 ms (terminal) natively on one core
+A full frame (1280×800) with 200 containers and 100 images: 0.86 ms
+(containers), 1.07 ms (images), 0.71 ms (terminal) natively on one core
 (Apple M4 Max, `BenchmarkFrame`). The views only redraw when something
 changed: a refresh that finds the engine as it was emits no list event.
 

@@ -174,6 +174,9 @@ func session(t *testing.T, pw *playwright.Playwright, browser string, isolate bo
 	d.press("F6", "ArrowDown")
 	d.until("web selected", 5*time.Second, func(p ui.Probe) bool { return p.Selected != "" })
 	d.until("logs", 30*time.Second, func(p ui.Probe) bool { return strings.Contains(p.Logs, "tick 2") })
+	d.until("events and stats", 30*time.Second, func(p ui.Probe) bool {
+		return p.Live == "live (GET /events)" && p.Memory > 0 && p.CPU == "--"
+	})
 	d.click("containers.stop")
 	p := d.until("stopped", 30*time.Second, func(p ui.Probe) bool { return strings.Contains(p.Status[1], "0 running") && p.Pending == 0 })
 	if p.LastCommand != "wctr stop web" {
@@ -197,6 +200,15 @@ func TestBrowsers(t *testing.T) {
 		isolate bool
 	}{{"chromium", true}, {"chromium", false}, {"firefox", true}} {
 		name := c.browser + map[bool]string{true: "/headers", false: "/service-worker"}[c.isolate]
+		if os.Getenv("E2E_URL") != "" {
+			if !c.isolate && c.browser == "chromium" {
+				continue // the live page is one page: each browser once
+			}
+			name = c.browser + "/live"
+		}
+		if only := os.Getenv("E2E_BROWSERS"); only != "" && !strings.Contains(only, c.browser) {
+			continue
+		}
 		t.Run(name, func(t *testing.T) { session(t, pw, c.browser, c.isolate) })
 	}
 }

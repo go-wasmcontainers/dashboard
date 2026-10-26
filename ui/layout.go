@@ -103,8 +103,12 @@ func (s *Scene) layout() {
 			s.runErr.SetBounds(rect{X: p.X + p.W/2 + gap, Y: p.Y + 26 + 2*gap + 22, W: p.W/2 - gap, H: 22})
 		}
 	case vm.ViewVolumes:
-		s.vMsg.SetBounds(rect{X: c.X, Y: c.Y, W: c.W, H: toolbarH})
-		s.vTable.SetBounds(body)
+		row(bar, s.vName, 200, s.vCreate, 80, s.vRemove, 90, s.vForce, 80, s.vPrune, 80, s.vAll, 120, s.vNotice, 0)
+		s.vMsg.SetBounds(rect{X: body.X, Y: body.Y, W: body.W, H: 22})
+		th := (body.H - 22 - gap) * 55 / 100
+		s.vTable.SetBounds(rect{X: body.X, Y: body.Y + 22 + gap, W: body.W, H: th})
+		iy := body.Y + 22 + 2*gap + th
+		s.vInspect.SetBounds(rect{X: body.X, Y: iy, W: body.W, H: body.Y + body.H - iy})
 	case vm.ViewTerminal:
 		s.term.SetBounds(c)
 	}
@@ -128,7 +132,7 @@ func (s *Scene) widgets() []toolkit.Widget {
 			out = append(out, s.runRm, s.runGo, s.panelClose)
 		}
 	case vm.ViewVolumes:
-		out = append(out, s.vTable)
+		out = append(out, s.vName, s.vCreate, s.vRemove, s.vForce, s.vPrune, s.vAll, s.vTable, s.vInspect)
 	case vm.ViewTerminal:
 		out = append(out, s.term)
 	}
@@ -152,7 +156,7 @@ func (s *Scene) visible() []toolkit.Widget {
 			out = append(out, s.runLine, s.runErr)
 		}
 	case vm.ViewVolumes:
-		out = append(out, s.vMsg)
+		out = append(out, s.vMsg, s.vNotice)
 	}
 	return out
 }

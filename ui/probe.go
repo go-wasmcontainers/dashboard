@@ -30,6 +30,10 @@ type Probe struct {
 	Terminal    string
 	Logs        string
 	Volumes     string
+	VolumeNames []string
+	Mounts      []string
+	Memory      float64
+	CPU         string
 	Dark        bool
 }
 
@@ -49,10 +53,12 @@ func (s *Scene) named() map[string]toolkit.Widget {
 		"images.search": s.iSearch, "images.pull": s.iPull, "images.run": s.iRun, "images.remove": s.iRemove,
 		"images.force": s.iForce, "images.table": s.iTable, "pull.ref": s.pullRef, "pull.go": s.pullGo,
 		"run.go": s.runGo, "run.rm": s.runRm, "panel.close": s.panelClose,
-		"volumes.table": s.vTable, "terminal": s.term,
+		"volumes.table": s.vTable, "volumes.name": s.vName, "volumes.create": s.vCreate, "volumes.remove": s.vRemove,
+		"volumes.force": s.vForce, "volumes.prune": s.vPrune, "volumes.all": s.vAll, "volumes.inspect": s.vInspect,
+		"terminal": s.term,
 	}
 	for i, e := range s.runFields {
-		m["run."+[]string{"image", "name", "command", "env", "entrypoint", "workdir", "memory"}[i]] = e
+		m["run."+[]string{"image", "name", "command", "env", "entrypoint", "workdir", "memory", "volumes"}[i]] = e
 	}
 	return m
 }
@@ -87,5 +93,10 @@ func (s *Scene) Probe() Probe {
 	for i := 0; i < a.Images.Rows.Len(); i++ {
 		p.Images = append(p.Images, a.Images.Rows.At(i).Ref)
 	}
+	for i := 0; i < a.Volumes.Rows.Len(); i++ {
+		p.VolumeNames = append(p.VolumeNames, a.Volumes.Rows.At(i).Name)
+	}
+	p.Mounts = a.Detail.Mounts.Slice()
+	p.Memory, p.CPU = a.Detail.Memory.Get(), a.Detail.CPU.Get()
 	return p
 }

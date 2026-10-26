@@ -227,10 +227,7 @@ func TestRefreshErrorsAndStorage(t *testing.T) {
 		t.Errorf("Storage = %q", h.app.Storage.Get())
 	}
 	h.f.df = &engine.DiskUsage{LayersSize: 3000, Volumes: []engine.Volume{{Name: "v"}}}
-	h.f.df.Volumes[0].UsageData = &struct {
-		Size     int64 `json:"Size"`
-		RefCount int64 `json:"RefCount"`
-	}{Size: 1000}
+	h.f.df.Volumes[0].UsageData = &api.VolumeUsage{Size: 1000}
 	h.refresh()
 	if h.app.Storage.Get() != "storage 4kB" {
 		t.Errorf("Storage = %q", h.app.Storage.Get())
@@ -404,24 +401,79 @@ func TestVolumesView(t *testing.T) {
 	h := newHarness(t)
 	h.refresh()
 	v := h.app.Volumes
-	if v.Supported.Get() != VolumesUnsupported || !strings.Contains(v.Message.Get(), "engine v0.2.0 does not yet") || v.Rows.Len() != 0 {
+	if v.Supported.Get() != VolumesUnsupported || !strings.Contains(v.Message.Get(), "engine v0.2.0 does not") || v.Rows.Len() != 0 {
 		t.Errorf("unsupported: %d %q", v.Supported.Get(), v.Message.Get())
 	}
-	h.f.volErr = nil
+	h.f.set(func() { h.f.volErr = nil })
 	h.refresh()
-	if v.Supported.Get() != VolumesSupported || v.Message.Get() != "No volumes." {
+	if v.Supported.Get() != VolumesSupported || !strings.HasPrefix(v.Message.Get(), "No volumes.") {
 		t.Errorf("empty: %q", v.Message.Get())
 	}
-	h.f.volumes = []engine.Volume{{Name: "data", Driver: "local"}, {Name: "cache"}}
-	h.f.volumes[0].UsageData = &struct {
-		Size     int64 `json:"Size"`
-		RefCount int64 `json:"RefCount"`
-	}{Size: 2048}
+	// Sizes come from the list when it has them, else from GET /system/df.
+	h.f.set(func() {
+		h.f.volumes = []engine.Volume{{Name: "data", Driver: "local", UsageData: &api.VolumeUsage{Size: 2048, RefCount: 1}}, {Name: "cache"}}
+		h.f.df = &engine.DiskUsage{Volumes: []engine.Volume{{Name: "cache", UsageData: &api.VolumeUsage{Size: 10, RefCount: 0}}}}
+	})
 	h.refresh()
-	if v.Rows.Len() != 2 || v.Rows.At(0).Name != "cache" || v.Rows.At(1).Size != "2.05kB" || v.Message.Get() != "" || len(v.Rows.At(0).Cells()) != len(VolumeColumns) {
+	if v.Rows.Len() != 2 || v.Rows.At(0) != (VolumeRow{Name: "cache", Size: "10B", Used: "0 container(s)"}) ||
+		v.Rows.At(1).Size != "2.05kB" || v.Message.Get() != "" || len(v.Rows.At(0).Cells()) != len(VolumeColumns) {
 		t.Errorf("rows = %v", v.Rows.Slice())
 	}
-	h.f.volErr = errors.New("boom")
+	if _, ok := v.Find("nope"); ok {
+		t.Error("Find invented a volume")
+	}
+	if r, ok := v.Find("data"); !ok || r.Used != "1 container(s)" {
+		t.Errorf("Find(data) = %+v %v", r, ok)
+	}
+
+	// Select: the inspect tree follows; a failing inspect says so.
+	v.Selected.Set("data")
+	h.until("inspect", func() bool { return v.Inspect.Len() > 0 && v.Inspect.At(1).Value == `"data"` })
+	h.f.setErr("volume inspect cache", errors.New("gone"))
+	v.Selected.Set("cache")
+	h.until("inspect error", func() bool { return v.Inspect.Len() == 1 && v.Inspect.At(0).Value == "gone" })
+	h.f.setErr("volume inspect cache", nil)
+	h.f.set(func() { h.f.volInspect = "{" })
+	v.Selected.Set("data")
+	h.until("bad inspect", func() bool {
+		return v.Inspect.Len() == 1 && v.Inspect.At(0).Key == "error" && v.Inspect.At(0).Value != "gone"
+	})
+	v.Selected.Set("cache")
+	v.Selected.Set("") // a late answer for cache is dropped
+	h.settle()
+	if v.Inspect.Len() != 0 {
+		t.Errorf("inspect after deselect = %v", v.Inspect.Slice())
+	}
+
+	// Actions and their lines.
+	if v.CreateLine() != "wctr volume create" || v.RemoveLine("data", false) != "wctr volume rm data" ||
+		v.RemoveLine("data", true) != "wctr volume rm -f data" || v.PruneLine(false) != "wctr volume prune -f" || v.PruneLine(true) != "wctr volume prune -a -f" {
+		t.Error("volume lines")
+	}
+	v.NewName.Set(" scratch ")
+	if v.CreateLine() != "wctr volume create scratch" {
+		t.Errorf("CreateLine = %q", v.CreateLine())
+	}
+	v.Create()
+	h.until("created", func() bool { return h.f.called("volume create scratch") && v.NewName.Get() == "" })
+	h.f.setErr("volume create x", errors.New("taken"))
+	v.NewName.Set("x")
+	v.Create()
+	h.until("create error", func() bool { return h.app.Error.Get() == "taken" })
+	if v.NewName.Get() != "x" {
+		t.Error("a failed create cleared the name")
+	}
+	v.Remove("data", true)
+	h.until("removed", func() bool { return h.f.called("volume rm -f data") })
+	h.f.set(func() { h.f.prune = api.VolumePruneResponse{VolumesDeleted: []string{"a", "b"}, SpaceReclaimed: 3000} })
+	v.Prune(true)
+	h.until("pruned", func() bool { return v.Notice.Get() == "pruned 2 volume(s), 3kB reclaimed" })
+	h.f.setErr("volume prune all=false", errors.New("busy"))
+	v.Prune(false)
+	h.until("prune error", func() bool { return h.app.Error.Get() == "busy" })
+	h.settle()
+
+	h.f.set(func() { h.f.volErr = errors.New("boom") })
 	h.refresh()
 	if v.Message.Get() != "volumes: boom" || v.Rows.Len() != 2 {
 		t.Errorf("error: %q", v.Message.Get())
@@ -473,7 +525,7 @@ func TestDetail(t *testing.T) {
 	if d.State.Get() != "exited · exit code 3" || d.Title.Get() != "job" || d.LogsLine.Get() != "wctr logs job" {
 		t.Errorf("state = %q title %q line %q", d.State.Get(), d.Title.Get(), d.LogsLine.Get())
 	}
-	if !slices.Equal(d.Env.Slice(), []string{"A=1", "B=2"}) || !slices.Equal(d.Mounts.Slice(), []string{"/v -> /data"}) || d.Tree.Len() == 0 {
+	if !slices.Equal(d.Env.Slice(), []string{"A=1", "B=2"}) || !slices.Equal(d.Mounts.Slice(), []string{"volume data -> /data (rw)", "volume /v -> /ro (ro)"}) || d.Tree.Len() == 0 {
 		t.Errorf("env %v mounts %v", d.Env.Slice(), d.Mounts.Slice())
 	}
 	n := d.Tree.Len()

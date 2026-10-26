@@ -3,7 +3,7 @@ package vm
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -36,11 +36,50 @@ type fake struct {
 	pullMsgs   []api.JSONMessage
 	noImage    bool          // Create answers "no such image" until a Pull
 	gate       chan struct{} // Version waits on it when set
+	since      []int64       // the since of each Events call
+	stats      []engine.Stats
+	statsErr   error
+	volInspect string
+	prune      api.VolumePruneResponse
 }
 
 func newFake() *fake {
 	return &fake{err: map[string]error{}, volErr: engine.ErrUnsupported, eventsErr: engine.ErrUnsupported,
-		inspect: `{"Id":"c1","State":{"Status":"exited","Running":false,"ExitCode":3,"FinishedAt":"x"},"Config":{"Env":["B=2","A=1"]},"Mounts":[{"Source":"/v","Destination":"/data"}]}`}
+		inspect:    `{"Id":"c1","State":{"Status":"exited","Running":false,"ExitCode":3,"FinishedAt":"x"},"Config":{"Env":["B=2","A=1"]},"Mounts":[{"Type":"volume","Name":"data","Destination":"/data","RW":true},{"Source":"/v","Destination":"/ro"}]}`,
+		volInspect: `{"Name":"data","Driver":"local"}`}
+}
+
+func (f *fake) VolumeCreate(_ context.Context, o api.VolumeCreateOptions) (engine.Volume, error) {
+	return engine.Volume{Name: o.Name}, f.record("volume create " + o.Name)
+}
+
+func (f *fake) VolumeInspect(_ context.Context, name string) (json.RawMessage, error) {
+	err := f.record("volume inspect " + name)
+	return json.RawMessage(get(f, func() string { return f.volInspect })), err
+}
+
+func (f *fake) VolumeRemove(_ context.Context, name string, force bool) error {
+	if force {
+		return f.record("volume rm -f " + name)
+	}
+	return f.record("volume rm " + name)
+}
+
+func (f *fake) VolumesPrune(_ context.Context, all bool) (api.VolumePruneResponse, error) {
+	err := f.record(fmt.Sprintf("volume prune all=%v", all))
+	return get(f, func() api.VolumePruneResponse { return f.prune }), err
+}
+
+func (f *fake) Stats(ctx context.Context, id string, stream bool, fn func(engine.Stats)) error {
+	f.record(fmt.Sprintf("stats %s stream=%v", id, stream))
+	for _, s := range get(f, func() []engine.Stats { return f.stats }) {
+		fn(s)
+	}
+	if stream {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return get(f, func() error { return f.statsErr })
 }
 
 // set changes the fake's state under its lock (background refreshes may
@@ -198,8 +237,11 @@ func (f *fake) DiskUsage(context.Context) (engine.DiskUsage, error) {
 	return *f.df, nil
 }
 
-func (f *fake) Events(ctx context.Context, fn func(engine.Event)) error {
+// Events serves the current events channel; a closed channel ends the
+// stream with eventsErr (nil: a clean end); no channel answers eventsErr.
+func (f *fake) Events(ctx context.Context, since int64, fn func(engine.Event)) error {
 	f.record("events")
+	f.set(func() { f.since = append(f.since, since) })
 	events := get(f, func() chan engine.Event { return f.events })
 	if events == nil {
 		return get(f, func() error { return f.eventsErr })
@@ -210,7 +252,7 @@ func (f *fake) Events(ctx context.Context, fn func(engine.Event)) error {
 			return ctx.Err()
 		case ev, ok := <-events:
 			if !ok {
-				return errors.New("stream ended")
+				return get(f, func() error { return f.eventsErr })
 			}
 			fn(ev)
 		}

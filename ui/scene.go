@@ -75,8 +75,15 @@ type Scene struct {
 	panelTitle, panelClose *toolkit.Button
 
 	// volumes view
-	vTable *toolkit.Table
-	vMsg   *toolkit.Label
+	vTable                   *toolkit.Table
+	vMsg, vNotice            *toolkit.Label
+	vName                    *toolkit.Entry
+	vCreate, vRemove, vPrune *toolkit.Button
+	vForce, vAll             *toolkit.CheckButton
+	vInspect                 *toolkit.ListBox
+
+	// the detail's Stats tab
+	stats *statsPanel
 
 	// terminal view
 	term *toolkit.Terminal
@@ -216,13 +223,7 @@ func (s *Scene) build() {
 		inv()
 	}
 	s.inspect = toolkit.NewListBox(nil)
-	bindItems(s.inspect, d.Tree, func(n vm.InspectNode) string {
-		text := n.Key
-		if text != "" {
-			text += ": "
-		}
-		return strings.Repeat("   ", n.Depth) + text + n.Value
-	}, inv)
+	bindItems(s.inspect, d.Tree, inspectLine, inv)
 	s.env = toolkit.NewListBox(nil)
 	bindItems(s.env, d.Env, func(e string) string { return e }, inv)
 	s.mounts = toolkit.NewListBox(nil)
@@ -232,6 +233,8 @@ func (s *Scene) build() {
 	s.detail.AddTab("Inspect", s.inspect)
 	s.detail.AddTab("Environment", s.env)
 	s.detail.AddTab("Mounts", s.mounts)
+	s.stats = newStatsPanel(d, inv)
+	s.detail.AddTab("Stats", s.stats)
 
 	// Images.
 	im := a.Images
@@ -279,6 +282,7 @@ func (s *Scene) build() {
 		{"Image", "hello", f.Image}, {"Name", "optional", f.Name}, {"Command", "arguments after the image", f.Command},
 		{"Environment", "KEY=value, comma separated", f.Env}, {"Entrypoint", "optional", f.Entrypoint},
 		{"Working dir", "optional", f.Workdir}, {"Memory", "e.g. 64m", f.Memory},
+		{"Volumes", "NAME:/path[:ro], comma separated", f.Volumes},
 	} {
 		e := toolkit.NewEntry("")
 		e.Placeholder = fld.hint
@@ -304,10 +308,34 @@ func (s *Scene) build() {
 	for i, t := range vm.VolumeColumns {
 		vcols[i] = toolkit.TableColumn{Title: t}
 	}
+	v := a.Volumes
 	s.vTable = toolkit.NewTable(vcols, nil)
-	bindRows(s.vTable, a.Volumes.Rows, vm.VolumeRow.Cells, inv)
+	s.vTable.MultiSelect = true
+	bindRows(s.vTable, v.Rows, vm.VolumeRow.Cells, func() { s.syncVolumeSelection(); inv() })
+	s.vTable.Selected().Subscribe(func(i int) {
+		if i >= 0 && i < v.Rows.Len() {
+			v.Selected.Set(v.Rows.At(i).Name)
+		}
+	})
+	v.Selected.Subscribe(func(string) { s.syncVolumeSelection(); s.updateButtons(); inv() })
 	s.vMsg = toolkit.NewLabel("")
-	bindLabel(s.vMsg, a.Volumes.Message.Get, inv, a.Volumes.Message)
+	bindLabel(s.vMsg, v.Message.Get, inv, v.Message)
+	s.vNotice = toolkit.NewLabel("")
+	bindLabel(s.vNotice, v.Notice.Get, inv, v.Notice)
+	s.vName = toolkit.NewEntry("")
+	s.vName.Placeholder = "new volume name"
+	bindObs(s.vName.Text(), v.NewName, inv)
+	s.vCreate = button("Create", v.Create)
+	s.vForce = toolkit.NewCheckButton("Force", false)
+	s.vRemove = button("Remove", func() {
+		if name := v.Selected.Get(); name != "" {
+			v.Remove(name, s.vForce.Checked().Get())
+		}
+	})
+	s.vAll = toolkit.NewCheckButton("All unused", false)
+	s.vPrune = button("Prune", func() { v.Prune(s.vAll.Checked().Get()) })
+	s.vInspect = toolkit.NewListBox(nil)
+	bindItems(s.vInspect, v.Inspect, inspectLine, inv)
 
 	// Terminal.
 	s.term = toolkit.NewTerminal(80, 24, 5000)
@@ -338,6 +366,26 @@ func (s *Scene) build() {
 		o.SubscribeChanged(set)
 	}
 	s.updateButtons()
+}
+
+// inspectLine renders an inspect tree line, indented by depth.
+func inspectLine(n vm.InspectNode) string {
+	text := n.Key
+	if text != "" {
+		text += ": "
+	}
+	return strings.Repeat("   ", n.Depth) + text + n.Value
+}
+
+func (s *Scene) syncVolumeSelection() {
+	v := s.app.Volumes
+	sel := -1
+	for i := 0; i < v.Rows.Len(); i++ {
+		if v.Rows.At(i).Name == v.Selected.Get() {
+			sel = i
+		}
+	}
+	s.vTable.Selected().Set(sel)
 }
 
 // bindObs mirrors a widget observable and a viewmodel one, both ways.
@@ -385,6 +433,7 @@ func (s *Scene) updateButtons() {
 	s.cRemove.Disabled().Set(!ok)
 	_, img := s.app.Images.Find(s.app.Images.Selected.Get())
 	s.iRemove.Disabled().Set(!img)
+	s.vRemove.Disabled().Set(s.app.Volumes.Selected.Get() == "")
 }
 
 // buttonLine is the command line a hovered action button stands for.
@@ -408,8 +457,16 @@ func (s *Scene) buttonLine(b *toolkit.Button) string {
 	if b == s.pullGo {
 		return "Pull = " + im.PullLine()
 	}
-	if b == s.runGo {
+	v := s.app.Volumes
+	switch {
+	case b == s.runGo:
 		return "Run = " + im.Run.Line.Get()
+	case b == s.vCreate:
+		return "Create = " + v.CreateLine()
+	case b == s.vRemove && v.Selected.Get() != "":
+		return "Remove = " + v.RemoveLine(v.Selected.Get(), s.vForce.Checked().Get())
+	case b == s.vPrune:
+		return "Prune = " + v.PruneLine(s.vAll.Checked().Get())
 	}
 	return ""
 }
