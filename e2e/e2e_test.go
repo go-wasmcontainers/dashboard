@@ -70,11 +70,13 @@ type driver struct {
 
 func (d *driver) state() ui.Probe {
 	d.t.Helper()
+	p := ui.Probe{Status: make([]string, 4)}
 	v, err := d.page.Evaluate("() => window.__dashboard ? window.__dashboard.state() : ''")
 	if err != nil {
-		d.t.Fatalf("state: %v", err)
+		// The service worker reloads the page once to isolate it.
+		*d.log = append(*d.log, "state: "+err.Error())
+		return p
 	}
-	p := ui.Probe{Status: make([]string, 4)}
 	if s, _ := v.(string); s != "" {
 		if err := json.Unmarshal([]byte(s), &p); err != nil {
 			d.t.Fatal(err)
@@ -142,7 +144,9 @@ func session(t *testing.T, pw *playwright.Playwright, browser string, isolate bo
 	}
 	d := &driver{t: t, page: page, log: &log}
 	t0 := time.Now()
-	d.until("the dashboard", 90*time.Second, func(p ui.Probe) bool { return strings.HasPrefix(p.Status[0], "engine e2e") })
+	d.until("the dashboard", 90*time.Second, func(p ui.Probe) bool {
+		return strings.HasPrefix(p.Status[0], "engine ") && !strings.HasPrefix(p.Status[0], "engine: ")
+	})
 	t.Logf("%s: dashboard ready in %s", browser, time.Since(t0).Round(time.Millisecond))
 
 	// Keyboard: F6 to the navigation, down to Terminal; type a run.
