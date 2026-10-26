@@ -11,6 +11,26 @@ import (
 	"time"
 )
 
+// TestBodyShortReads: a read smaller than a chunk takes part of it and
+// keeps the rest for the next read.
+func TestBodyShortReads(t *testing.T) {
+	b := newBody()
+	b.push([]byte("abc"))
+	b.CloseWithError(io.EOF)
+	got, err := io.ReadAll(io.LimitReader(struct{ io.Reader }{b}, 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := make([]byte, 2)
+	b2 := newBody()
+	b2.push([]byte("xyz"))
+	n, _ := b2.Read(p)
+	m, _ := b2.Read(p)
+	if string(got) != "abc" || n != 2 || m != 1 || string(p[:1]) != "z" {
+		t.Errorf("reads: %q %d %d %q", got, n, m, p[:m])
+	}
+}
+
 // pair wires a transport to a server over direct calls (what postMessage
 // does between the realms, minus the copy).
 func pair(h http.Handler) (*Transport, *Server, *http.Client) {

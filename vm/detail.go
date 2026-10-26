@@ -14,6 +14,8 @@ import (
 
 	"github.com/go-wasmcontainers/engine/api"
 	"github.com/go-widgets/mvvm"
+
+	"github.com/go-wasmcontainers/dashboard/engine"
 )
 
 // InspectNode is one line of the inspect tree, in document order.
@@ -115,16 +117,36 @@ type Detail struct {
 	LogOut   func([]byte)
 	LogReset func()
 
-	cancel  context.CancelFunc
-	pending atomic.Int64
-	gen     int
+	// Stats: Memory is the share of the memory limit in use (0..1, -1 when
+	// unknown), MemoryText the same in bytes, MemHistory the last readings
+	// (bytes, oldest first, bounded), CPU "--" (the engine does not measure
+	// it) with CPUNote saying why, and the other counters as text.
+	Memory     *mvvm.Observable[float64]
+	MemoryText *mvvm.Observable[string]
+	MemHistory *mvvm.ObservableList[float64]
+	CPU        *mvvm.Observable[string]
+	CPUNote    *mvvm.Observable[string]
+	Counters   *mvvm.Observable[string]
+	StatsLine  *mvvm.Observable[string]
+
+	cancel       context.CancelFunc
+	statsCancel  context.CancelFunc
+	statsRunning bool
+	pending      atomic.Int64
+	gen          int
 }
+
+// MaxHistory bounds the memory readings kept for the sparkline.
+const MaxHistory = 60
 
 func newDetail(a *App) *Detail {
 	d := &Detail{
 		app: a, ID: mvvm.NewObservable(""), Title: mvvm.NewObservable(""), State: mvvm.NewObservable(""),
 		Tree: mvvm.NewObservableList[InspectNode](), Env: mvvm.NewObservableList[string](),
 		Mounts: mvvm.NewObservableList[string](), Follow: mvvm.NewObservable(true), LogsLine: mvvm.NewObservable(""),
+		Memory: mvvm.NewObservable(-1.0), MemoryText: mvvm.NewObservable(""), MemHistory: mvvm.NewObservableList[float64](),
+		CPU: mvvm.NewObservable("--"), CPUNote: mvvm.NewObservable(""), Counters: mvvm.NewObservable(""),
+		StatsLine: mvvm.NewObservable(""),
 	}
 	d.Follow.SubscribeChanged(func() {
 		if d.ID.Get() != "" {
@@ -167,6 +189,83 @@ func (d *Detail) Close() {
 	if d.LogReset != nil {
 		d.LogReset()
 	}
+	d.stopStats()
+	d.Memory.Set(-1)
+	d.MemoryText.Set("")
+	d.MemHistory.Clear()
+	d.CPU.Set("--")
+	d.CPUNote.Set("")
+	d.Counters.Set("")
+	d.StatsLine.Set("")
+}
+
+func (d *Detail) stopStats() {
+	if d.statsCancel != nil {
+		d.statsCancel()
+		d.statsCancel = nil
+	}
+}
+
+// streamStats reads the shown container's stats: once a second while it
+// runs (`wctr stats NAME`), one reading otherwise (`--no-stream`).
+func (d *Detail) streamStats(running bool) {
+	d.stopStats()
+	d.statsRunning = running
+	id := d.ID.Get()
+	r, _ := d.app.Containers.Find(id)
+	if running {
+		d.StatsLine.Set(Line("stats", r.Ref()))
+	} else {
+		d.StatsLine.Set(Line("stats", "--no-stream", r.Ref()))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	d.statsCancel = cancel
+	go func() {
+		err := d.app.eng.Stats(ctx, id, running, func(s engine.Stats) {
+			d.app.post(func() {
+				if id == d.ID.Get() && ctx.Err() == nil {
+					d.applyStats(s)
+				}
+			})
+		})
+		if err != nil && ctx.Err() == nil {
+			msg := "stats: " + Clean(err.Error(), maxField)
+			d.app.post(func() {
+				if id == d.ID.Get() {
+					d.Counters.Set(msg)
+				}
+			})
+		}
+	}()
+}
+
+func (d *Detail) applyStats(s engine.Stats) {
+	m := s.MemoryStats
+	if m.Limit > 0 {
+		d.Memory.Set(float64(m.Usage) / float64(m.Limit))
+		d.MemoryText.Set(fmt.Sprintf("%s of %s", Size(int64(m.Usage)), Size(int64(m.Limit))))
+	} else {
+		d.Memory.Set(-1)
+		d.MemoryText.Set(Size(int64(m.Usage)))
+	}
+	if d.MemHistory.Len() == MaxHistory {
+		d.MemHistory.RemoveAt(0)
+	}
+	d.MemHistory.Append(float64(m.Usage))
+	if s.CPUStats.CPUUsage.TotalUsage > 0 && s.CPUStats.SystemCPUUsage > 0 {
+		d.CPU.Set(fmt.Sprintf("%.1f%%", 100*float64(s.CPUStats.CPUUsage.TotalUsage)/float64(s.CPUStats.SystemCPUUsage)))
+	} else {
+		d.CPU.Set("--")
+	}
+	d.CPUNote.Set(Clean(s.Wctr.CPU, maxField))
+	var written uint64
+	for _, e := range s.BlkioStats.IOServiceBytesRecursive {
+		if strings.EqualFold(e.Op, "write") {
+			written += e.Value
+		}
+	}
+	d.Counters.Set(fmt.Sprintf("written %s · layer %s · logs %s · pids %d",
+		Size(int64(written)), Size(s.Wctr.SizeRw), Size(s.Wctr.LogBytes), s.PidsStats.Current))
 }
 
 // refresh re-inspects the shown container (its state may have changed),
@@ -206,12 +305,7 @@ func (d *Detail) applyInspect(raw []byte) {
 		d.State.Set("inspect: " + Clean(err.Error(), maxField))
 		return
 	}
-	var ins struct {
-		api.ContainerInspect
-		Mounts []struct {
-			Source, Destination string
-		} `json:"Mounts"`
-	}
+	var ins api.ContainerInspect
 	_ = json.Unmarshal(raw, &ins) // the tree parsed it already
 	st := ins.State
 	state := Clean(st.Status, 32)
@@ -231,9 +325,24 @@ func (d *Detail) applyInspect(raw []byte) {
 	replace(d.Env, env)
 	var mounts []string
 	for _, m := range ins.Mounts {
-		mounts = append(mounts, Clean(m.Source+" -> "+m.Destination, 500))
+		src := m.Name
+		if src == "" {
+			src = m.Source
+		}
+		mode := "rw"
+		if !m.RW {
+			mode = "ro"
+		}
+		kind := m.Type
+		if kind == "" {
+			kind = "volume"
+		}
+		mounts = append(mounts, Clean(fmt.Sprintf("%s %s -> %s (%s)", kind, src, m.Destination, mode), 500))
 	}
 	replace(d.Mounts, mounts)
+	if running := st.Running; running != d.statsRunning || d.statsCancel == nil {
+		d.streamStats(running)
+	}
 }
 
 // replace sets l to want when it differs (an ordered document: no keys).

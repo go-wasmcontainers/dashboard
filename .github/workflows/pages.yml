@@ -67,3 +67,36 @@ jobs:
           done
           echo "::error::$url does not serve build $want"
           exit 1
+
+  # Then use it, in Chromium and Firefox, as a visitor does (the service
+  # worker isolates the page): run from the terminal, select, logs, events,
+  # stats, Stop by click, the action echoed in the terminal.
+  live:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.27.3' }
+      - uses: actions/setup-node@v7
+        with: { node-version: 22 }
+      # The driver is assembled from npm (playwright-core 1.57.0, the
+      # version playwright-go v0.5700.1 speaks), integrity-checked, by the
+      # playground's tool.
+      - name: Playwright driver and ${{ matrix.browser }}
+        run: |
+          echo "PLAYWRIGHT_DRIVER_PATH=$RUNNER_TEMP/pwdriver" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_NODEJS_PATH=$(command -v node)" >> "$GITHUB_ENV"
+          go run github.com/go-wasmcontainers/playground/cmd/site@v0.1.0 playwright-driver --dir "$RUNNER_TEMP/pwdriver"
+          PLAYWRIGHT_DRIVER_PATH="$RUNNER_TEMP/pwdriver" PLAYWRIGHT_NODEJS_PATH="$(command -v node)" \
+            go run github.com/playwright-community/playwright-go/cmd/playwright install --with-deps ${{ matrix.browser }}
+      - name: the live page, used in ${{ matrix.browser }}
+        env:
+          E2E_URL: https://go-wasmcontainers.github.io/dashboard/
+          E2E_BROWSERS: ${{ matrix.browser }}
+        run: go test -tags e2e -count=1 -v -timeout 15m ./e2e/ > "$RUNNER_TEMP/live.log" 2>&1; status=$?; tail -30 "$RUNNER_TEMP/live.log"; exit $status

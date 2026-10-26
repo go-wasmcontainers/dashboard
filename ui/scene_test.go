@@ -167,11 +167,15 @@ func TestDashboard(t *testing.T) {
 	r.until("started", func(p Probe) bool { return p.Pending == 0 && strings.Contains(p.Status[1], "1 running") })
 	r.click("containers.restart")
 	r.until("restarted", func(p Probe) bool { return p.Pending == 0 && strings.Contains(p.Status[1], "1 running") })
-	// Detail tabs and the follow toggle.
+	// Detail tabs and the follow toggle; the Stats tab gets readings.
 	d := r.s.detail.Bounds()
 	r.s.Click(d.X+120, d.Y+8)
 	r.s.Release(d.X+120, d.Y+8)
 	r.frame()
+	r.s.detail.Active().Set(4) // Stats
+	r.until("stats", func(p Probe) bool { return p.Memory > 0 && p.CPU == "--" && len(r.s.stats.spark.Values) > 0 })
+	r.frame()
+	r.s.detail.Active().Set(0)
 	r.click("detail.follow")
 	r.frame()
 	// Search filters; the check shows running only.
@@ -231,11 +235,32 @@ func TestDashboard(t *testing.T) {
 		t.Error("a line for a button that stands for nothing")
 	}
 
-	// Volumes: the engine does not serve them; the view says so.
+	// Volumes: create from the field, select, inspect, remove, prune.
 	r.app.View.Set(vm.ViewVolumes)
-	p = r.until("volumes", func(p Probe) bool { return strings.Contains(p.Volumes, "GET /volumes") })
-	if _, ok := p.Boxes["volumes.table"]; !ok {
-		t.Error("no volumes table")
+	p = r.until("no volumes", func(p Probe) bool { return strings.HasPrefix(p.Volumes, "No volumes.") })
+	r.click("volumes.name")
+	r.typeText("data")
+	if h := r.s.buttonLine(r.s.vCreate); h != "Create = wctr volume create data" {
+		t.Errorf("create line = %q", h)
+	}
+	r.click("volumes.create")
+	r.until("created", func(p Probe) bool { return len(p.VolumeNames) == 1 && p.Pending == 0 })
+	r.clickRow(r.s.vTable, 0)
+	r.until("inspect", func(p Probe) bool { return len(r.s.vInspect.Items) > 1 })
+	r.click("volumes.force")
+	if h := r.s.buttonLine(r.s.vRemove); h != "Remove = wctr volume rm -f data" {
+		t.Errorf("rm line = %q", h)
+	}
+	r.click("volumes.all")
+	if h := r.s.buttonLine(r.s.vPrune); h != "Prune = wctr volume prune -a -f" {
+		t.Errorf("prune line = %q", h)
+	}
+	r.click("volumes.remove")
+	r.until("removed", func(p Probe) bool { return len(p.VolumeNames) == 0 && p.Pending == 0 })
+	r.click("volumes.prune")
+	r.until("pruned", func(p Probe) bool { return p.Pending == 0 && strings.HasPrefix(r.s.vNotice.Text().Get(), "pruned") })
+	if r.s.buttonLine(r.s.vRemove) != "" {
+		t.Error("a remove line with nothing selected")
 	}
 	r.s.Scroll(p.Boxes["volumes.table"].X+5, p.Boxes["volumes.table"].Y+5, 0, 1)
 	if r.s.Scroll(-10, -10, 0, 1) {

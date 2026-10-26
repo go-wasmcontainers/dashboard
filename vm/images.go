@@ -195,7 +195,9 @@ type RunForm struct {
 	// comma), Entrypoint, Workdir and Memory mirror wctr run's arguments.
 	Image, Name, Command, Env   *mvvm.Observable[string]
 	Entrypoint, Workdir, Memory *mvvm.Observable[string]
-	AutoRemove                  *mvvm.Observable[bool]
+	// Volumes are the -v mounts: NAME:/path[:ro], comma or line separated.
+	Volumes    *mvvm.Observable[string]
+	AutoRemove *mvvm.Observable[bool]
 	// Line is the command line the form stands for, Error what is wrong
 	// with it ("" when it can run).
 	Line, Error *mvvm.Observable[string]
@@ -207,10 +209,10 @@ func newRunForm(a *App) *RunForm {
 	f := &RunForm{
 		app: a, Image: mvvm.NewObservable(""), Name: mvvm.NewObservable(""), Command: mvvm.NewObservable(""),
 		Env: mvvm.NewObservable(""), Entrypoint: mvvm.NewObservable(""), Workdir: mvvm.NewObservable(""),
-		Memory: mvvm.NewObservable(""), AutoRemove: mvvm.NewObservable(false),
+		Memory: mvvm.NewObservable(""), AutoRemove: mvvm.NewObservable(false), Volumes: mvvm.NewObservable(""),
 		Line: mvvm.NewObservable(""), Error: mvvm.NewObservable(""), Started: mvvm.NewObservable(""),
 	}
-	for _, o := range []mvvm.Changeable{f.Image, f.Name, f.Command, f.Env, f.Entrypoint, f.Workdir, f.Memory, f.AutoRemove} {
+	for _, o := range []mvvm.Changeable{f.Image, f.Name, f.Command, f.Env, f.Entrypoint, f.Workdir, f.Memory, f.AutoRemove, f.Volumes} {
 		o.SubscribeChanged(f.update)
 	}
 	f.update()
@@ -219,7 +221,7 @@ func newRunForm(a *App) *RunForm {
 
 // Reset prefills the form for image.
 func (f *RunForm) Reset(image string) {
-	for _, o := range []*mvvm.Observable[string]{f.Name, f.Command, f.Env, f.Entrypoint, f.Workdir, f.Memory} {
+	for _, o := range []*mvvm.Observable[string]{f.Name, f.Command, f.Env, f.Entrypoint, f.Workdir, f.Memory, f.Volumes} {
 		o.Set("")
 	}
 	f.AutoRemove.Set(false)
@@ -253,6 +255,25 @@ func envList(s string) ([]string, error) {
 	return env, nil
 }
 
+// bindList parses the Volumes field: NAME:/path[:ro|:rw], comma or line
+// separated, named volumes only (what the engine mounts).
+func bindList(s string) ([]string, error) {
+	var binds []string
+	for _, b := range strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == ',' }) {
+		b = strings.TrimSpace(b)
+		if b == "" {
+			continue
+		}
+		parts := strings.Split(b, ":")
+		ok := len(parts) == 2 || len(parts) == 3 && (parts[2] == "ro" || parts[2] == "rw")
+		if !ok || parts[0] == "" || strings.ContainsAny(parts[0], "/\\") || !strings.HasPrefix(parts[1], "/") {
+			return nil, fmt.Errorf("volume %q: write NAME:/path or NAME:/path:ro", b)
+		}
+		binds = append(binds, b)
+	}
+	return binds, nil
+}
+
 // Request is what the form asks the engine for, and the equivalent
 // command line; err says what is wrong with the form.
 func (f *RunForm) Request() (name string, req api.ContainerCreateRequest, line string, err error) {
@@ -266,6 +287,11 @@ func (f *RunForm) Request() (name string, req api.ContainerCreateRequest, line s
 	for _, e := range env {
 		args = append(args, "-e", e)
 	}
+	binds, verr := bindList(f.Volumes.Get())
+	for _, b := range binds {
+		args = append(args, "-v", b)
+	}
+	req.HostConfig.Binds = binds
 	if f.AutoRemove.Get() {
 		args = append(args, "--rm")
 	}
@@ -300,6 +326,8 @@ func (f *RunForm) Request() (name string, req api.ContainerCreateRequest, line s
 		err = errors.New("choose an image")
 	case eerr != nil:
 		err = eerr
+	case verr != nil:
+		err = verr
 	case merr != nil:
 		err = merr
 	case cerr != nil:

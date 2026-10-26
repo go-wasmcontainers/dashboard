@@ -182,7 +182,7 @@ func (a *App) apply(s snapshot) {
 	now := a.now()
 	a.Containers.apply(s.containers, now)
 	a.Images.apply(s.images, now)
-	a.Volumes.apply(s.volumes, s.volErr, s.version.Version)
+	a.Volumes.apply(s.volumes, s.volErr, s.version.Version, s.df)
 	a.Detail.refresh()
 	running := 0
 	for _, c := range s.containers {
@@ -254,30 +254,66 @@ func (a *App) Do(line string, fn func(ctx context.Context) error) {
 	}()
 }
 
-// Live keeps the dashboard current until ctx ends: it follows the
-// engine's event stream when the engine serves one, and polls every
-// interval otherwise (or after the stream fails).
+// Reconnection delays of the event stream: the first retry, and the most
+// it backs off to while the stream keeps ending without an event.
+var (
+	ReconnectDelay    = 200 * time.Millisecond
+	MaxReconnectDelay = 5 * time.Second
+)
+
+// RunLive keeps the dashboard current until ctx ends. It follows the
+// engine's event stream (GET /events), refreshing on each event. When the
+// stream ends — the engine cuts off a slow reader, or the connection
+// breaks — it resynchronises (a full refresh) and reconnects from the time
+// of the last event it saw, backing off while the stream keeps failing.
+// An engine that serves no event stream is polled every interval instead.
 func (a *App) RunLive(ctx context.Context, interval time.Duration) {
 	a.Refresh()
+	var since int64
+	delay := ReconnectDelay
 	for ctx.Err() == nil {
 		a.post(func() { a.Live.Set("live (GET /events)") })
-		err := a.eng.Events(ctx, func(engine.Event) { a.Refresh() })
+		got := false
+		err := a.eng.Events(ctx, since, func(ev engine.Event) {
+			got = true
+			if ev.Time > since {
+				since = ev.Time
+			}
+			a.Refresh()
+		})
 		if ctx.Err() != nil {
 			return
 		}
-		mode := fmt.Sprintf("polling every %s (the engine serves no GET /events)", interval)
-		if !errors.Is(err, engine.ErrUnsupported) {
-			mode = fmt.Sprintf("polling every %s (event stream ended)", interval)
+		if errors.Is(err, engine.ErrUnsupported) {
+			a.post(func() { a.Live.Set(fmt.Sprintf("polling every %s (the engine serves no GET /events)", interval)) })
+			if !a.poll(ctx, interval) {
+				return
+			}
+			continue
 		}
-		a.post(func() { a.Live.Set(mode) })
-		if !a.poll(ctx, interval) {
+		why := "the stream ended"
+		if err != nil {
+			why = Clean(err.Error(), 80)
+		}
+		a.post(func() { a.Live.Set("reconnecting to GET /events (" + why + ")") })
+		a.Refresh() // resynchronise: events may have been lost
+		if since == 0 {
+			since = a.now().Unix()
+		}
+		if got {
+			delay = ReconnectDelay
+		}
+		select {
+		case <-ctx.Done():
 			return
+		case <-time.After(delay):
 		}
+		delay = min(delay*2, MaxReconnectDelay)
 	}
 }
 
-// poll refreshes every interval until ctx ends (false); a few rounds when
-// the stream ended, then it tries the stream again (true).
+// poll refreshes every interval until ctx ends (false); after a few
+// rounds it tries the event stream again (true).
 func (a *App) poll(ctx context.Context, interval time.Duration) bool {
 	t := time.NewTicker(interval)
 	defer t.Stop()
