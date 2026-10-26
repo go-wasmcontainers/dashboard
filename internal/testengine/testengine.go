@@ -69,10 +69,18 @@ type Engine struct {
 }
 
 // New starts an engine whose registry mirror serves the demo images under
-// their familiar names (hello, clock, fail).
-func New(tb testing.TB) *Engine {
+// their familiar names (hello, clock, fail), and hello's module again under
+// each of the extra names.
+func New(tb testing.TB, extra ...string) *Engine {
 	tb.Helper()
-	files := images.Registry(Modules(tb))
+	mods := map[string][]byte{}
+	for n, b := range Modules(tb) {
+		mods[n] = b
+	}
+	for _, n := range extra {
+		mods[n] = mods["hello"]
+	}
+	files := images.Registry(mods)
 	reg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, ok := files[r.URL.Path[1:]]
 		if !ok {

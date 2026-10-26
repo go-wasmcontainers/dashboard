@@ -32,6 +32,8 @@ jobs:
           out=$(gofmt -l .)
           if [ -n "$out" ]; then echo "::error::not gofmt-ed:"; echo "$out"; exit 1; fi
       - run: go vet ./...
+      # The browser tests (Playwright, -tags e2e) build on every change.
+      - run: go vet -tags e2e ./e2e/
       - run: CGO_ENABLED=0 go build ./...
       # The integration tests run a real engine (wazero) in-process and
       # build the demo images for wasip1 first.

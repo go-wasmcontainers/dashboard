@@ -97,6 +97,18 @@ func TestTerminal(t *testing.T) {
 	}
 	sh.block = nil
 
+	// A command that starts between the call and the note's turn wins.
+	term.mu.Lock()
+	term.run = func() {}
+	term.mu.Unlock()
+	term.note("wctr rm racing")
+	r.settle()
+	term.mu.Lock()
+	term.run = nil
+	term.mu.Unlock()
+	if strings.Contains(r.text(), "racing") {
+		t.Error("a note over a running command")
+	}
 	// Dashboard actions show above the prompt, cleaned.
 	term.note("wctr rm \x1b[31mweb")
 	r.until("note", func() bool { return strings.Contains(r.text(), "# dashboard: wctr rm �[31mweb") })

@@ -159,14 +159,18 @@ func (t *Terminal) Attach(out func(string), clear func()) {
 	go t.loop()
 }
 
-// Resize tells the editor the terminal's width.
+// Resize tells the editor the terminal's width. It never blocks the
+// caller (the UI goroutine): the key goroutine may hold the editor while a
+// completion waits for the engine.
 func (t *Terminal) Resize(cols int) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.r.Cols = cols
-	if t.ed != nil {
-		t.ed.SetCols(cols)
-	}
+	go func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		t.r.Cols = cols
+		if t.ed != nil {
+			t.ed.SetCols(cols)
+		}
+	}()
 }
 
 // Input queues what the user typed. It never blocks (keys past a full
@@ -187,17 +191,20 @@ func (t *Terminal) loop() {
 }
 
 // note shows a dashboard action's command line above the prompt. Called
-// on the UI goroutine.
+// on the UI goroutine, which it never blocks (see Resize).
 func (t *Terminal) note(line string) {
-	if !t.ShowActions.Get() || !t.started {
+	if !t.ShowActions.Get() || !t.started || t.Running.Get() {
 		return
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.run != nil {
-		return // a command owns the screen
-	}
-	t.write(t.r.Print([]string{"\x1b[2m# dashboard: " + Clean(line, 500) + "\x1b[0m"}, t.ed.State()))
+	text := "\x1b[2m# dashboard: " + Clean(line, 500) + "\x1b[0m"
+	go func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		if t.run != nil {
+			return // a command owns the screen
+		}
+		t.out(t.r.Print([]string{text}, t.ed.State()))
+	}()
 }
 
 func (t *Terminal) key(k lineedit.Key) {
