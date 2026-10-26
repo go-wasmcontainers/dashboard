@@ -1,0 +1,116 @@
+name: ci
+on: { push: { branches: [main] }, pull_request: {} }
+permissions: { contents: read }
+jobs:
+  # A workflow that fails to parse reports no checks at all, which reads
+  # exactly like checks that have not started. actionlint is the first lane.
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: actionlint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.27.3' }
+      - run: go version
+      - name: gofmt
+        shell: bash
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "::error::not gofmt-ed:"; echo "$out"; exit 1; fi
+      - run: go vet ./...
+      - run: CGO_ENABLED=0 go build ./...
+      # The integration tests run a real engine (wazero) in-process and
+      # build the demo images for wasip1 first.
+      - name: go test -race
+        run: CGO_ENABLED=1 go test -race -count=1 ./...
+      # The viewmodels, the engine client and the bridge carry the logic:
+      # every block of them is covered (covblocks reads the profile; `go
+      # tool cover -func` rounds 99.95% up to 100.0%).
+      - name: exact coverage of vm, engine, bridge
+        shell: bash
+        run: |
+          go test -count=1 -coverprofile=cov.out ./vm ./engine ./bridge
+          go run github.com/go-fleettools/fleettools/cmd/covblocks@v0.40.0 cov.out
+
+  # Container output, inspect documents and bridge messages are untrusted.
+  fuzz:
+    name: fuzz smoke ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: FuzzServer, pkg: ./bridge }
+          - { target: FuzzInspectTree, pkg: ./vm }
+          - { target: FuzzClean, pkg: ./vm }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.27.3' }
+      - run: go version
+      - run: go test -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime 45s ${{ matrix.pkg }}
+
+  vulns:
+    name: govulncheck, judged by vulngate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.27.3' }
+      - run: go version
+      # No pipefail on purpose: govulncheck's exit status does not say
+      # whether a finding is reachable; vulngate judges the JSON, and an
+      # empty scan is refused outright.
+      - name: govulncheck, judged by vulngate
+        run: |
+          set -eu
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install github.com/go-fleettools/fleettools/cmd/vulngate@v0.20.1
+          BIN="$(go env GOPATH)/bin"
+          "$BIN/govulncheck" -format json ./... > /tmp/vuln.json || true
+          test -s /tmp/vuln.json || { echo "::error::govulncheck wrote nothing at all"; exit 1; }
+          "$BIN/vulngate" -go "$(go env GOVERSION)" /tmp/vuln.json
+
+  # The dashboard runs in the browser: everything builds and vets for js/wasm.
+  js:
+    name: build and vet for js/wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.27.3' }
+      - run: go version
+      - run: GOOS=js GOARCH=wasm CGO_ENABLED=0 go vet ./...
+      - run: GOOS=js GOARCH=wasm CGO_ENABLED=0 go build ./...
+
+  cross:
+    name: cross ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: linux, goarch: '386' }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.27.3' }
+      - run: go version
+      - run: GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build ./...
