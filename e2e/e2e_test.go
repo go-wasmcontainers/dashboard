@@ -176,13 +176,13 @@ func session(t *testing.T, pw *playwright.Playwright, browser string, isolate bo
 	d.until("logs", 30*time.Second, func(p ui.Probe) bool { return strings.Contains(p.Logs, "tick 2") })
 	d.click("containers.stop")
 	p := d.until("stopped", 30*time.Second, func(p ui.Probe) bool { return strings.Contains(p.Status[1], "0 running") && p.Pending == 0 })
-	if p.LastCommand != "wctr kill web" {
+	if p.LastCommand != "wctr stop web" {
 		t.Errorf("last command = %q", p.LastCommand)
 	}
 	// The terminal shows what the button did.
 	d.press("F6", "ArrowDown", "ArrowDown", "ArrowDown")
 	d.until("the action in the terminal", 10*time.Second, func(p ui.Probe) bool {
-		return strings.Contains(p.Terminal, "# dashboard: wctr kill web")
+		return strings.Contains(p.Terminal, "# dashboard: wctr stop web")
 	})
 }
 

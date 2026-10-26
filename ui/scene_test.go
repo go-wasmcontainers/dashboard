@@ -154,13 +154,13 @@ func TestDashboard(t *testing.T) {
 	r.until("logs", func(p Probe) bool { return strings.Contains(p.Logs, "tick 2") })
 	b := r.s.Probe().Boxes["containers.stop"]
 	r.s.Move(b.X+5, b.Y+5)
-	if h := r.s.Probe().Hint; h != "Stop = wctr kill web" {
+	if h := r.s.Probe().Hint; h != "Stop = wctr stop web" {
 		t.Errorf("hover hint = %q", h)
 	}
 	r.s.Move(b.X+5, b.Y+5) // the same button: nothing new
 	r.click("containers.stop")
 	r.until("stopped", func(p Probe) bool { return p.Pending == 0 && strings.Contains(p.Status[1], "0 running") })
-	if !strings.Contains(r.s.Probe().LastCommand, "wctr kill web") {
+	if r.s.Probe().LastCommand != "wctr stop web" {
 		t.Errorf("last command = %q", r.s.Probe().LastCommand)
 	}
 	r.click("containers.start")

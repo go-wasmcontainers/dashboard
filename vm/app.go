@@ -198,7 +198,7 @@ func (a *App) apply(s snapshot) {
 				total += v.UsageData.Size
 			}
 		}
-		a.Storage.Set("storage " + Size(total))
+		a.Storage.Set(storageLine(total, s.df.Storage))
 		return
 	}
 	var total int64
@@ -206,6 +206,30 @@ func (a *App) apply(s snapshot) {
 		total += im.Size
 	}
 	a.Storage.Set("images " + Size(total) + " (disk usage requires GET /system/df)")
+}
+
+// storageLine is the status bar's storage segment: what the images and
+// volumes take (GET /system/df), and where the engine keeps its state and
+// how full that is, when the engine says (its Storage addition).
+func storageLine(total int64, st *api.StorageUsage) string {
+	s := "storage " + Size(total)
+	if st == nil {
+		return s
+	}
+	s += " · " + Clean(st.Kind, 60)
+	switch {
+	case st.Usage >= 0 && st.Quota > 0:
+		s += fmt.Sprintf(" %s of %s", Size(st.Usage), Size(st.Quota))
+	case st.Usage >= 0:
+		s += " " + Size(st.Usage)
+	}
+	if st.Persistent {
+		s += " (persistent)"
+	}
+	if st.Error != "" {
+		s += " · error: " + Clean(st.Error, 120)
+	}
+	return s
 }
 
 // Do runs an action against the engine in the background: line is the

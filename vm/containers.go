@@ -177,17 +177,14 @@ func (c *Containers) StartLine(r ContainerRow) string {
 	return c.app.cli.Equivalent("POST /containers/"+r.Ref()+"/start", "start", r.Ref())
 }
 
-// StopLine: wctr has kill; a wasm container has no signal handler to stop
-// gracefully, so stop is kill.
-func (c *Containers) StopLine(r ContainerRow) string { return Line("kill", r.Ref()) }
+// StopLine is `wctr stop` (a wasm guest has no signals: it stops at once).
+func (c *Containers) StopLine(r ContainerRow) string {
+	return c.app.cli.Equivalent("POST /containers/"+r.Ref()+"/stop", "stop", r.Ref())
+}
 
-// RestartLine is kill (when running) then start.
+// RestartLine is `wctr restart`.
 func (c *Containers) RestartLine(r ContainerRow) string {
-	start := c.StartLine(r)
-	if r.Running() {
-		return c.StopLine(r) + " && " + start
-	}
-	return start
+	return c.app.cli.Equivalent("POST /containers/"+r.Ref()+"/restart", "restart", r.Ref())
 }
 
 // RemoveLine is rm, forced for a running container.
@@ -203,53 +200,15 @@ func (c *Containers) Start(r ContainerRow) {
 	c.app.Do(c.StartLine(r), func(ctx context.Context) error { return c.app.eng.Start(ctx, r.ID) })
 }
 
-// Stop kills the running container and waits until it has stopped, so the
-// refresh that follows shows it stopped.
+// Stop stops the container; the engine answers once it has exited, so
+// the refresh that follows shows it stopped.
 func (c *Containers) Stop(r ContainerRow) {
-	c.app.Do(c.StopLine(r), func(ctx context.Context) error { return c.kill(ctx, r) })
+	c.app.Do(c.StopLine(r), func(ctx context.Context) error { return c.app.eng.Stop(ctx, r.ID) })
 }
 
-// killRetry is how long kill waits for the container to stop before it
-// kills again: engine v0.3.0 drops a kill that arrives while the container
-// is still starting (its process not yet attached), and the container
-// would run on.
-var killRetry = time.Second
-
-func (c *Containers) kill(ctx context.Context, r ContainerRow) error {
-	wctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	stopped, err := c.app.eng.WaitStopped(wctx, r.ID)
-	if err != nil {
-		return err
-	}
-	done := make(chan error, 1)
-	go func() { done <- stopped() }()
-	if err := c.app.eng.Kill(ctx, r.ID); err != nil {
-		return err
-	}
-	for {
-		select {
-		case err := <-done:
-			return err
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(killRetry):
-			c.app.eng.Kill(ctx, r.ID) // "not running" here means it just stopped
-		}
-	}
-}
-
-// Restart kills the container if it runs, waits for it to stop, and
-// starts it again.
+// Restart stops the container if it runs and starts it again.
 func (c *Containers) Restart(r ContainerRow) {
-	c.app.Do(c.RestartLine(r), func(ctx context.Context) error {
-		if r.Running() {
-			if err := c.kill(ctx, r); err != nil {
-				return err
-			}
-		}
-		return c.app.eng.Start(ctx, r.ID)
-	})
+	c.app.Do(c.RestartLine(r), func(ctx context.Context) error { return c.app.eng.Restart(ctx, r.ID) })
 }
 
 // Remove removes the container (forced when it runs).

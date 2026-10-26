@@ -16,15 +16,15 @@ sync, because both speak to the same engine through the same API (compatible
 with the Docker Engine API).
 
 Every action names the command line it stands for — hover a button and the
-footer says “Stop = `wctr kill web`”; click it and the terminal shows
-`# dashboard: wctr kill web` above its prompt.
+footer says “Stop = `wctr stop web`”; click it and the terminal shows
+`# dashboard: wctr stop web` above its prompt.
 
 **Try it:** <https://go-wasmcontainers.github.io/dashboard/> — a standalone
 demo with its own engine in a Web Worker and three demo images (`hello`,
 `clock`, `fail`). In the Terminal view: `wctr run -d --name web clock`, then
 watch it in Containers.
 
-> **Status: M1.** Containers, container detail, images (pull, run, remove),
+> **Status: M1, on engine v0.5.0.** Containers, container detail, images (pull, run, remove),
 > volumes (waiting for the engine), status bar and terminal work in Chromium
 > (tested with Playwright, both with real isolation headers and with the
 > service worker GitHub Pages needs).
@@ -33,16 +33,15 @@ watch it in Containers.
 
 | View | |
 |---|---|
-| **Containers** | name, image, state (coloured: running, exited 0, exited ≠ 0, created), status, created, ID; filter running/all, search, sort by any column; Start, Stop, Restart, Remove on the selected container. Detail pane: **Logs** (follow on/off; ANSI colours rendered, stderr in red), **Inspect** (the inspect document as an indented tree, in its own key order), **Environment**, **Mounts**. |
+| **Containers** | name, image, state (coloured: running, exited 0, exited ≠ 0, created), status, created, ID; filter running/all, search, sort by any column; Start, Stop, Restart, Remove on the selected container (the engine's `/start`, `/stop`, `/restart` and `DELETE`: `wctr start`, `wctr stop`, `wctr restart`, `wctr rm`). Detail pane: **Logs** (follow on/off; ANSI colours rendered, stderr in red), **Inspect** (the inspect document as an indented tree, in its own key order), **Environment**, **Mounts**. |
 | **Images** | repository:tag, image ID, digest, size, created; **Pull…** (progress lines), **Run…** (image, name, command, environment, entrypoint, working dir, memory, `--rm`, mirroring `wctr run -d`, with the command line shown live as you type), Remove (Force). |
 | **Volumes** | the engine's volumes once it serves `GET /volumes`; until then the view says what it needs — never invented rows. |
 | **Terminal** | `wctr` run in-process against the same engine, with the engine's line editor (`cli/lineedit`: history, Ctrl-R, Tab completion of commands, flags and container names). |
-| status bar | engine version and API, counts, storage (from `GET /system/df` once served; the images' total until then), how it keeps up (`GET /events` or polling). |
+| status bar | engine version and API, counts, storage from `GET /system/df` (images and volumes, and where the engine keeps its state and how full it is — `IndexedDB 2MB of 1GB (persistent)`, or `none` for an in-memory engine), how it keeps up (`GET /events` or polling). |
 
-Wherever wctr has no command for an action yet (`start`, in engine v0.3.0),
-the footer shows the API call instead — `POST /containers/web/start`, with
-a note that wctr has no `start` yet — and switches to the command line by
-itself once wctr has it.
+Wherever the wctr in use has no command for an action, the footer shows the
+API call instead (`POST /containers/web/stop`, with a note), and switches to
+the command line by itself once wctr has it.
 
 ## Keyboard
 

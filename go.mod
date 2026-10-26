@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	github.com/docker/go-units v0.5.0
 	github.com/go-opentype/fonts v0.14.0
-	github.com/go-wasmcontainers/engine v0.3.0
+	github.com/go-wasmcontainers/engine v0.5.0
 	github.com/go-widgets/mvvm v0.15.0
 	github.com/go-widgets/painter v0.16.0
 	github.com/go-widgets/toolkit v0.342.0

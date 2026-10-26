@@ -23,7 +23,7 @@ func TestEndpoints(t *testing.T) {
 		case "/v1.47/volumes":
 			io.WriteString(w, `{"Volumes":[{"Name":"data","Driver":"local","UsageData":{"Size":5,"RefCount":1}}],"Warnings":null}`)
 		case "/v1.47/system/df":
-			io.WriteString(w, `{"LayersSize":42,"Images":[{"Id":"sha256:a"}],"Volumes":[]}`)
+			io.WriteString(w, `{"LayersSize":42,"Images":[{"Id":"sha256:a"}],"Volumes":[],"Storage":{"Kind":"IndexedDB","Usage":10,"Quota":100}}`)
 		case "/v1.47/events":
 			w.(http.Flusher).Flush()
 			for {
@@ -55,7 +55,7 @@ func TestEndpoints(t *testing.T) {
 		t.Errorf("Volumes = %+v, %v", vols, err)
 	}
 	df, err := e.DiskUsage(ctx)
-	if err != nil || df.LayersSize != 42 || len(df.Images) != 1 {
+	if err != nil || df.LayersSize != 42 || len(df.Images) != 1 || df.Storage == nil || df.Storage.Kind != "IndexedDB" {
 		t.Errorf("DiskUsage = %+v, %v", df, err)
 	}
 	if raw, err := e.InspectContainer(ctx, "c1"); err != nil || string(raw) != `{"Id":"c1"}` {
@@ -63,13 +63,6 @@ func TestEndpoints(t *testing.T) {
 	}
 	if raw, err := e.InspectImage(ctx, "hello"); err != nil || string(raw) != `{"Id":"sha256:h"}` {
 		t.Errorf("InspectImage = %s, %v", raw, err)
-	}
-	wait, err := e.WaitStopped(ctx, "c1")
-	if err != nil || wait() != nil {
-		t.Errorf("WaitStopped: %v", err)
-	}
-	if _, err := e.WaitStopped(ctx, "gone"); !api.IsNotFound(err) {
-		t.Errorf("WaitStopped(gone) = %v", err)
 	}
 
 	// Events: two events, then a broken line ends the stream.

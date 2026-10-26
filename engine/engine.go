@@ -47,6 +47,9 @@ type DiskUsage struct {
 	Images     []api.ImageSummary     `json:"Images"`
 	Containers []api.ContainerSummary `json:"Containers"`
 	Volumes    []Volume               `json:"Volumes"`
+	// Storage is the go-wasmcontainers engine's own addition (v0.4.0):
+	// where its state lives and how full that is.
+	Storage *api.StorageUsage `json:"Storage"`
 }
 
 // Event is one message of GET /events (EventMessage).
@@ -69,9 +72,11 @@ type Engine interface {
 	InspectImage(ctx context.Context, ref string) (json.RawMessage, error)
 	Start(ctx context.Context, id string) error
 	Kill(ctx context.Context, id string) error
-	// WaitStopped registers a wait for the container to stop; the
-	// returned function blocks until it has.
-	WaitStopped(ctx context.Context, id string) (func() error, error)
+	// Stop stops a running container and returns once it has exited
+	// (engine v0.5.0, POST /containers/{id}/stop).
+	Stop(ctx context.Context, id string) error
+	// Restart stops the container if it runs, then starts it.
+	Restart(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string, force bool) error
 	Create(ctx context.Context, name string, req api.ContainerCreateRequest) (api.ContainerCreateResponse, error)
 	Pull(ctx context.Context, ref string, progress func(api.JSONMessage)) error
@@ -103,15 +108,6 @@ func New(hc *http.Client, base string) *HTTP {
 // InspectContainer inspects a container.
 func (h *HTTP) InspectContainer(ctx context.Context, id string) (json.RawMessage, error) {
 	return h.Client.Inspect(ctx, id)
-}
-
-// WaitStopped waits for the container to be not running.
-func (h *HTTP) WaitStopped(ctx context.Context, id string) (func() error, error) {
-	w, err := h.Client.Wait(ctx, id, "not-running")
-	if err != nil {
-		return nil, err
-	}
-	return func() error { _, err := w.Result(); return err }, nil
 }
 
 // InspectImage inspects an image.

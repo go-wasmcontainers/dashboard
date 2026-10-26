@@ -135,7 +135,7 @@ func TestTerminalAndGUIShareTheEngine(t *testing.T) {
 		row, ok := r.container("ticker")
 		return ok && !row.Running()
 	})
-	if !strings.Contains(r.text(), "# dashboard: wctr kill ticker") {
+	if !strings.Contains(r.text(), "# dashboard: wctr stop ticker") {
 		t.Errorf("terminal did not show the action:\n%s", r.text())
 	}
 	r.typeLine("wctr ps -a")
@@ -227,8 +227,9 @@ func TestUnservedEndpointsAreUnsupported(t *testing.T) {
 	if _, err := r.eng.Volumes(ctx); !errors.Is(err, engine.ErrUnsupported) {
 		t.Errorf("Volumes: %v", err)
 	}
-	if _, err := r.eng.DiskUsage(ctx); !errors.Is(err, engine.ErrUnsupported) {
-		t.Errorf("DiskUsage: %v", err)
+	// Disk usage is served since engine v0.4.0, with the engine's Storage.
+	if df, err := r.eng.DiskUsage(ctx); err != nil || df.Storage == nil {
+		t.Errorf("DiskUsage: %+v %v", df, err)
 	}
 	if err := r.eng.Events(ctx, func(engine.Event) {}); !errors.Is(err, engine.ErrUnsupported) {
 		t.Errorf("Events: %v", err)
@@ -241,7 +242,7 @@ func TestUnservedEndpointsAreUnsupported(t *testing.T) {
 	if r.app.Volumes.Supported.Get() != vm.VolumesUnsupported || !strings.Contains(r.app.Volumes.Message.Get(), "engine test does not yet") {
 		t.Errorf("volumes: %q", r.app.Volumes.Message.Get())
 	}
-	if !strings.Contains(r.app.Storage.Get(), "requires GET /system/df") {
+	if !strings.HasPrefix(r.app.Storage.Get(), "storage 0B · ") {
 		t.Errorf("storage = %q", r.app.Storage.Get())
 	}
 	ctx, cancel := context.WithCancel(ctx)
