@@ -165,25 +165,19 @@ func TestContainersView(t *testing.T) {
 	}
 
 	// Lines and actions.
-	if c.StartLine(job) != "POST /containers/job/start  (no `wctr start` yet)" {
-		t.Errorf("StartLine = %q", c.StartLine(job))
-	}
-	if c.StopLine(web) != "wctr kill web" || c.RemoveLine(web) != "wctr rm -f web" || c.RemoveLine(job) != "wctr rm job" {
-		t.Error("lines")
-	}
-	if c.RestartLine(web) != "wctr kill web && "+c.StartLine(web) || c.RestartLine(job) != c.StartLine(job) {
-		t.Errorf("RestartLine = %q", c.RestartLine(web))
+	if c.StartLine(job) != "wctr start job" || c.StopLine(web) != "wctr stop web" || c.RestartLine(web) != "wctr restart web" ||
+		c.RemoveLine(web) != "wctr rm -f web" || c.RemoveLine(job) != "wctr rm job" {
+		t.Errorf("lines: %q %q %q", c.StartLine(job), c.StopLine(web), c.RestartLine(web))
 	}
 	for _, act := range []struct {
 		do   func()
 		call string
 	}{
 		{func() { c.Start(job) }, "start c2"},
-		{func() { c.Stop(web) }, "kill c1"},
+		{func() { c.Stop(web) }, "stop c1"},
 		{func() { c.Remove(web) }, "rm -f c1"},
 		{func() { c.Remove(job) }, "rm c2"},
-		{func() { c.Restart(job) }, "start c2"},
-		{func() { c.Restart(web) }, "waited c1"},
+		{func() { c.Restart(web) }, "restart c1"},
 	} {
 		act.do()
 		h.until(act.call, func() bool { return h.f.called(act.call) })
@@ -192,12 +186,25 @@ func TestContainersView(t *testing.T) {
 	if h.app.LastCommand.Get() != c.RestartLine(web) || h.app.Error.Get() != "" {
 		t.Errorf("LastCommand = %q, Error = %q", h.app.LastCommand.Get(), h.app.Error.Get())
 	}
-	for _, e := range []string{"wait c1", "kill c1", "waited c1"} {
-		h.f.setErr(e, errors.New(e+" failed"))
-		c.Restart(web)
-		h.until(e+" error", func() bool { return h.app.Error.Get() == e+" failed" })
-		h.settle()
-		h.f.setErr(e, nil)
+	h.f.setErr("restart c1", errors.New("restart failed"))
+	c.Restart(web)
+	h.until("restart error", func() bool { return h.app.Error.Get() == "restart failed" })
+	h.settle()
+}
+
+func TestStorageLine(t *testing.T) {
+	for _, c := range []struct {
+		st   *api.StorageUsage
+		want string
+	}{
+		{nil, "storage 1kB"},
+		{&api.StorageUsage{Kind: "IndexedDB", Usage: 2000, Quota: 10000, Persistent: true}, "storage 1kB · IndexedDB 2kB of 10kB (persistent)"},
+		{&api.StorageUsage{Kind: "directory /var/lib/wctr", Usage: 3000, Quota: -1}, "storage 1kB · directory /var/lib/wctr 3kB"},
+		{&api.StorageUsage{Kind: "memory", Usage: -1, Quota: -1, Error: "quota\x1b exceeded"}, "storage 1kB · memory · error: quota� exceeded"},
+	} {
+		if got := storageLine(1000, c.st); got != c.want {
+			t.Errorf("storageLine = %q, want %q", got, c.want)
+		}
 	}
 }
 
