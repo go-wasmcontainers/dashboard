@@ -53,16 +53,17 @@ func newStatsPanel(d *vm.Detail, inv func()) *statsPanel {
 // SetBounds lays the panel out: the gauge on the left, the rest beside it.
 func (p *statsPanel) SetBounds(r toolkit.Rect) {
 	p.Base.SetBounds(r)
-	g := min(r.H-8, 140)
-	p.gauge.SetBounds(toolkit.Rect{X: r.X + 4, Y: r.Y + 4, W: max(g, 1), H: max(g, 1)})
-	x := r.X + g + 16
-	w := max(r.W-g-20, 1)
-	y := r.Y + 4
+	pad := u(4)
+	g := min(r.H-2*pad, u(140))
+	p.gauge.SetBounds(toolkit.Rect{X: r.X + pad, Y: r.Y + pad, W: max(g, 1), H: max(g, 1)})
+	x := r.X + g + 4*pad
+	w := max(r.W-g-5*pad, 1)
+	y := r.Y + pad
 	for _, l := range []*toolkit.Label{p.header, p.mem, p.cpu, p.counters} {
-		l.SetBounds(toolkit.Rect{X: x, Y: y, W: w, H: 20})
-		y += 22
+		l.SetBounds(toolkit.Rect{X: x, Y: y, W: w, H: u(20)})
+		y += u(22)
 	}
-	p.spark.SetBounds(toolkit.Rect{X: x, Y: y + 4, W: w, H: max(r.Y+r.H-y-8, 1)})
+	p.spark.SetBounds(toolkit.Rect{X: x, Y: y + pad, W: w, H: max(r.Y+r.H-y-2*pad, 1)})
 }
 
 // Draw paints the children.

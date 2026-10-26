@@ -47,7 +47,10 @@ func newRig(t *testing.T) *rig {
 
 func (r *rig) until(what string, cond func() bool) {
 	r.t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
+	// Generous: under -race on a CI runner, wazero compiling a module for
+	// the first run of an image takes tens of seconds (the engine reports
+	// the container running meanwhile).
+	deadline := time.Now().Add(120 * time.Second)
 	poll := time.Now()
 	for !cond() {
 		if !r.noPoll && time.Since(poll) > 100*time.Millisecond {

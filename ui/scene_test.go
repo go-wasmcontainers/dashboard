@@ -54,7 +54,7 @@ func (r *rig) frame() { r.s.Draw(r.buf) }
 
 func (r *rig) until(what string, cond func(Probe) bool) Probe {
 	r.t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(120 * time.Second) // see integration: wazero compiles under -race
 	poll := time.Now()
 	for {
 		r.frame()
