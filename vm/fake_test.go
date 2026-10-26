@@ -36,6 +36,7 @@ type fake struct {
 	pullMsgs   []api.JSONMessage
 	noImage    bool          // Create answers "no such image" until a Pull
 	gate       chan struct{} // Version waits on it when set
+	stopGate   chan struct{} // WaitStopped's wait blocks on it when set
 }
 
 func newFake() *fake {
@@ -123,7 +124,13 @@ func (f *fake) Kill(_ context.Context, id string) error  { return f.record("kill
 
 func (f *fake) WaitStopped(_ context.Context, id string) (func() error, error) {
 	err := f.record("wait " + id)
-	return func() error { return f.record("waited " + id) }, err
+	gate := get(f, func() chan struct{} { return f.stopGate })
+	return func() error {
+		if gate != nil {
+			<-gate
+		}
+		return f.record("waited " + id)
+	}, err
 }
 
 func (f *fake) Remove(_ context.Context, id string, force bool) error {

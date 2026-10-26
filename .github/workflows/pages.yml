@@ -55,7 +55,7 @@ jobs:
           set -euo pipefail
           url=https://go-wasmcontainers.github.io/dashboard/
           want="${GITHUB_SHA::12}"
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if curl -fsS "$url" -o page.html && grep -q "app.js?v=$want" page.html; then
               curl -fsS -o /dev/null "${url}dashboard.wasm?v=$want"
               curl -fsS -o /dev/null "${url}engine.wasm?v=$want"

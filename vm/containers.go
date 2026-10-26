@@ -209,15 +209,34 @@ func (c *Containers) Stop(r ContainerRow) {
 	c.app.Do(c.StopLine(r), func(ctx context.Context) error { return c.kill(ctx, r) })
 }
 
+// killRetry is how long kill waits for the container to stop before it
+// kills again: engine v0.3.0 drops a kill that arrives while the container
+// is still starting (its process not yet attached), and the container
+// would run on.
+var killRetry = time.Second
+
 func (c *Containers) kill(ctx context.Context, r ContainerRow) error {
-	stopped, err := c.app.eng.WaitStopped(ctx, r.ID)
+	wctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stopped, err := c.app.eng.WaitStopped(wctx, r.ID)
 	if err != nil {
 		return err
 	}
+	done := make(chan error, 1)
+	go func() { done <- stopped() }()
 	if err := c.app.eng.Kill(ctx, r.ID); err != nil {
 		return err
 	}
-	return stopped()
+	for {
+		select {
+		case err := <-done:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(killRetry):
+			c.app.eng.Kill(ctx, r.ID) // "not running" here means it just stopped
+		}
+	}
 }
 
 // Restart kills the container if it runs, waits for it to stop, and
