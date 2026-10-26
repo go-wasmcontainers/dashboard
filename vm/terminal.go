@@ -196,7 +196,7 @@ func (t *Terminal) note(line string) {
 	if !t.ShowActions.Get() || !t.started || t.Running.Get() {
 		return
 	}
-	text :="\x1b[2m# dashboard: " + Clean(line, 500) + "\x1b[0m"
+	text := "\x1b[2m# dashboard: " + Clean(line, 500) + "\x1b[0m"
 	go func() {
 		t.mu.Lock()
 		defer t.mu.Unlock()
