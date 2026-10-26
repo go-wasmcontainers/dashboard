@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-opentype/fonts/jetbrainsmono"
 	"github.com/go-widgets/mvvm"
+	"github.com/go-widgets/painter"
 	"github.com/go-widgets/toolkit"
 	"github.com/go-widgets/webcanvas"
 
@@ -105,18 +106,27 @@ const (
 	panelRun
 )
 
-// monoFont is the terminals' face; nil when it cannot be built (the
-// toolkit's default then serves).
-var monoFont = func() toolkit.Font {
-	f, err := toolkit.NewTrueTypeFont(jetbrainsmono.TTF, 14)
+// monoPx is the terminals' text size in logical pixels.
+const monoPx = 14
+
+// monoFace is the terminals' face (JetBrains Mono, anti-aliased) at monoPx ×
+// ratio device pixels; nil when it cannot be built (the toolkit's default
+// then serves).
+func monoFace(ratio float64) toolkit.Font {
+	f, err := toolkit.NewTrueTypeFont(jetbrainsmono.TTF, max(int(monoPx*ratio+0.5), 1))
 	if err != nil {
 		return nil
 	}
 	return f
-}()
+}
+
+var monoFont = monoFace(1)
 
 // New builds the scene over app, sized w x h, posting UI work through q.
+// Text is the toolkit's anti-aliased OpenType face (Atkinson Hyperlegible),
+// not its 5x7 bitmap default.
 func New(app *vm.App, q *mvvm.Queue, w, h int) *Scene {
+	_ = toolkit.UseOpenTypeText() // on the impossible error, the bitmap face stays
 	s := &Scene{app: app, q: q, theme: Light()}
 	s.build()
 	s.Resize(w, h)
@@ -150,6 +160,8 @@ func (s *Scene) build() {
 	s.themeBtn = button("Dark theme", s.toggleTheme)
 
 	s.nav = toolkit.NewListBox(vm.ViewNames[:])
+	s.nav.RowHeight = u(navRowH)
+	s.nav.ItemRenderer = navItem
 	s.nav.Selected().Set(a.View.Get())
 	s.nav.Selected().Subscribe(func(i int) {
 		if i >= 0 && i < vm.NumViews {
@@ -165,6 +177,7 @@ func (s *Scene) build() {
 	// Containers.
 	c := a.Containers
 	s.cSearch = toolkit.NewSearchEntry("")
+	s.cSearch.Icon = searchIcon
 	bindObs(s.cSearch.Text(), c.Search, inv)
 	s.cAll = toolkit.NewCheckButton("Show stopped", true)
 	bindObs(s.cAll.Checked(), c.ShowAll, inv)
@@ -178,6 +191,7 @@ func (s *Scene) build() {
 	}
 	s.cTable = toolkit.NewTable(cols, nil)
 	s.cTable.MultiSelect = true // a click selects (one row: the actions take one)
+	s.cTable.Framed, s.cTable.RowLines = true, true
 	bindObs(s.cTable.SortColumn(), c.SortCol, inv)
 	bindObs(s.cTable.SortAsc(), c.SortAsc, inv)
 	s.cTable.CellFill = func(row, col int) (toolkit.RGBA, bool) {
@@ -239,6 +253,7 @@ func (s *Scene) build() {
 	// Images.
 	im := a.Images
 	s.iSearch = toolkit.NewSearchEntry("")
+	s.iSearch.Icon = searchIcon
 	bindObs(s.iSearch.Text(), im.Search, inv)
 	s.iPull = button("Pull…", func() { s.openPanel(panelPull) })
 	s.iRun = button("Run…", func() {
@@ -259,6 +274,7 @@ func (s *Scene) build() {
 	}
 	s.iTable = toolkit.NewTable(icols, nil)
 	s.iTable.MultiSelect = true
+	s.iTable.Framed, s.iTable.RowLines = true, true
 	bindRows(s.iTable, im.Rows, vm.ImageRow.Cells, func() { s.syncImageSelection(); inv() })
 	s.iTable.Selected().Subscribe(func(i int) {
 		if i >= 0 && i < im.Rows.Len() {
@@ -311,6 +327,7 @@ func (s *Scene) build() {
 	v := a.Volumes
 	s.vTable = toolkit.NewTable(vcols, nil)
 	s.vTable.MultiSelect = true
+	s.vTable.Framed, s.vTable.RowLines = true, true
 	bindRows(s.vTable, v.Rows, vm.VolumeRow.Cells, func() { s.syncVolumeSelection(); inv() })
 	s.vTable.Selected().Subscribe(func(i int) {
 		if i >= 0 && i < v.Rows.Len() {
@@ -366,6 +383,31 @@ func (s *Scene) build() {
 		o.SubscribeChanged(set)
 	}
 	s.updateButtons()
+}
+
+// navRowH is a navigation row's height in logical pixels.
+const navRowH = 32
+
+// navIcons are the views' icons: Iconoir glyphs (MIT, go-icons/iconoir),
+// drawn through the toolkit's icon seam, rasterised at the row's device
+// size and recoloured to the row's ink.
+var navIcons = [vm.NumViews]string{"box", "package", "database", "terminal"}
+
+// navItem draws a navigation row: its icon, then its label.
+func navItem(p painter.Painter, theme *toolkit.Theme, rc toolkit.Rect, index int, item string, selected bool, ink toolkit.RGBA) {
+	sz := u(18)
+	pad := u(8)
+	if index >= 0 && index < len(navIcons) {
+		toolkit.DrawIconoir(p, toolkit.Rect{X: rc.X + pad, Y: rc.Y + (rc.H-sz)/2, W: sz, H: sz}, navIcons[index], ink)
+	}
+	toolkit.DrawText(p, rc.X+2*pad+sz, rc.Y+(rc.H-toolkit.GlyphHeight())/2, item, ink)
+}
+
+// searchIcon is the search fields' magnifier: Iconoir's "search", square and
+// centred in the slot the field gives it.
+func searchIcon(p painter.Painter, r toolkit.Rect, ink toolkit.RGBA) {
+	sz := min(r.W, r.H, u(16))
+	toolkit.DrawIconoir(p, toolkit.Rect{X: r.X + (r.W-sz)/2, Y: r.Y + (r.H-sz)/2, W: sz, H: sz}, "search", ink)
 }
 
 // inspectLine renders an inspect tree line, indented by depth.

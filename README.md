@@ -44,6 +44,12 @@ Wherever the wctr in use has no command for an action, the footer shows the
 API call instead (`POST /containers/web/stop`, with a note), and switches to
 the command line by itself once wctr has it.
 
+## Look
+
+- **Crisp on any display.** Text is the toolkit's anti-aliased OpenType face (Atkinson Hyperlegible; the terminals use JetBrains Mono). The canvas renders at device pixels: its backing store is the CSS size × `devicePixelRatio`, and it follows browser zoom and moves between displays (go-widgets/webcanvas `PixelRatioAware`, with every metric and face scaled through `toolkit.SetMetricScale`). Measured in the page with `getImageData` at ratio 2: a 2560-px backing store for 1280 CSS px, and title glyphs with 17 coverage levels (the 5×7 bitmap face had 2).
+- **Icons** on the navigation and in the search fields are Iconoir glyphs (MIT, go-icons/iconoir), drawn through the toolkit's icon seam. They are rasterised at the device size of their box, cached per icon, size and colour, and recoloured with the row's ink.
+- **Delimitation.** The sidebar has its own ground and a border line. The tables have a frame, a header separator, column separators and row lines. The border colour is at least 3:1 against every ground it touches, in both themes (WCAG 2.2 SC 1.4.11; asserted in `ui/theme_test.go`).
+
 ## Keyboard
 
 F6 moves between the navigation and the view's main widget; Tab / Shift-Tab

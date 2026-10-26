@@ -9,21 +9,30 @@ var (
 )
 
 // Light is the light theme: the deep end of the brand gradient as accent
-// (4.9:1 on white, for focus rings and selection).
+// (4.9:1 on white, for focus rings and selection). Border is dark enough to
+// delimit panels and tables: at least 3:1 against every ground it sits on
+// (WCAG 2.2 SC 1.4.11, non-text contrast; asserted in theme_test.go).
 func Light() *toolkit.Theme {
 	t := toolkit.DefaultLight()
 	t.Accent = brandDeep
+	t.Border = toolkit.RGB(0x6B, 0x72, 0x80)
 	return t
 }
 
-// Dark is the dark theme: the light end of the gradient as accent.
+// Dark is the dark theme: the light end of the gradient as accent, and a
+// border light enough for the same 3:1.
 func Dark() *toolkit.Theme {
 	t := toolkit.DefaultDark()
 	t.Accent = brandLight
 	t.Background = toolkit.RGB(0x0F, 0x14, 0x19)
 	t.Surface = toolkit.RGB(0x16, 0x1C, 0x23)
+	t.Border = toolkit.RGB(0x8A, 0x93, 0xA0)
 	return t
 }
+
+// sidebarGround is the navigation panel's ground: the theme's SurfaceAlt,
+// set off from the content by a Border line.
+func sidebarGround(t *toolkit.Theme) toolkit.RGBA { return t.SurfaceAlt }
 
 // StateColor is the badge colour of a container state.
 func StateColor(state string, exitCode int, exited bool) (toolkit.RGBA, bool) {

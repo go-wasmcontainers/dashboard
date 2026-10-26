@@ -8,8 +8,8 @@ require (
 	github.com/go-wasmcontainers/engine v0.8.0
 	github.com/go-widgets/mvvm v0.15.0
 	github.com/go-widgets/painter v0.16.0
-	github.com/go-widgets/toolkit v0.342.0
-	github.com/go-widgets/webcanvas v0.4.1
+	github.com/go-widgets/toolkit v0.344.0
+	github.com/go-widgets/webcanvas v0.5.0
 	github.com/playwright-community/playwright-go v0.5700.1
 	github.com/spf13/cobra v1.10.2
 )
