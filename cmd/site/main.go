@@ -2,6 +2,7 @@
 //
 //	site build --out dist [--version v0.1.0]
 //	site serve --dir dist [--addr 127.0.0.1:8080] [--isolate]
+//	site check [--revision SHA] dist/dashboard.wasm dist/engine.wasm
 package main
 
 import (
@@ -13,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/go-wasmcontainers/dashboard/internal/buildstamp"
 	"github.com/go-wasmcontainers/dashboard/internal/site"
 )
 
@@ -62,7 +64,32 @@ func RootCmd() *cobra.Command {
 	serve.Flags().StringVar(&addr, "addr", "127.0.0.1:8080", "address to listen on (loopback by default)")
 	serve.Flags().StringVar(&prefix, "prefix", "/dashboard/", "URL path the site is served under")
 	serve.Flags().BoolVar(&isolate, "isolate", false, "send COOP/COEP headers (else the page's service worker isolates it)")
-	root.AddCommand(build, serve)
+	var revision string
+	check := &cobra.Command{
+		Use:   "check FILE...",
+		Short: "Fail unless each Go binary (wasm included) was built from a clean commit",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			for _, f := range args {
+				bin, err := os.ReadFile(f)
+				if err != nil {
+					return err
+				}
+				bi, err := buildstamp.Read(bin)
+				if err != nil {
+					return fmt.Errorf("%s: %w", f, err)
+				}
+				if err := buildstamp.Clean(bi, revision); err != nil {
+					return fmt.Errorf("%s: %w", f, err)
+				}
+				rev, _ := buildstamp.Setting(bi, "vcs.revision")
+				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s at %s, vcs.modified=false\n", f, bi.Main.Version, rev)
+			}
+			return nil
+		},
+	}
+	check.Flags().StringVar(&revision, "revision", "", "also require this vcs.revision (a full commit hash)")
+	root.AddCommand(build, serve, check)
 	return root
 }
 
