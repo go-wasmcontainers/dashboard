@@ -89,7 +89,7 @@ jobs:
       - uses: actions/setup-go@v7
         with: { go-version: '1.27.3' }
       - uses: actions/setup-node@v7
-        with: { node-version: 22 }
+        with: { node-version: 24 }
       # The driver is assembled from npm (playwright-core 1.57.0, the
       # version playwright-go v0.5700.1 speaks), integrity-checked, by the
       # playground's tool.
