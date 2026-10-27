@@ -107,6 +107,11 @@ A full frame (1280×800) with 200 containers and 100 images: 0.86 ms
 (Apple M4 Max, `BenchmarkFrame`). The views only redraw when something
 changed: a refresh that finds the engine as it was emits no list event.
 
+`dashboard.wasm` (`-trimpath -ldflags="-s -w"`) is 19.41 MB raw and 4.93 MB
+gzipped (v0.4.2, go-widgets/toolkit v0.345.1). It was 22.12 MB and 5.53 MB
+with toolkit v0.344.0, so toolkit v0.345.1 cuts it by 12.3 % raw and 11.0 %
+gzipped.
+
 ## Testing
 
 ```sh
