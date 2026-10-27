@@ -24,12 +24,17 @@ jobs:
       - uses: actions/setup-go@v7
         with: { go-version: '1.27.3' }
       - run: go version
+      # The site is written OUTSIDE the checkout: an untracked _site/ in the
+      # work tree stamped the programs vcs.modified=true (v0.4.2 shipped as
+      # v0.0.0-...+dirty).
       - name: build the site
         run: |
-          go run ./cmd/site build --out _site --version "${GITHUB_SHA::12}"
-          ls -la _site
+          go run ./cmd/site build --out "$RUNNER_TEMP/_site" --version "${GITHUB_SHA::12}"
+          ls -la "$RUNNER_TEMP/_site"
+      - name: the programs come from this commit, unmodified
+        run: go run ./cmd/site check --revision "$GITHUB_SHA" "$RUNNER_TEMP/_site/dashboard.wasm" "$RUNNER_TEMP/_site/engine.wasm"
       - uses: actions/upload-pages-artifact@v5
-        with: { path: _site }
+        with: { path: "${{ runner.temp }}/_site" }
 
   deploy:
     needs: build

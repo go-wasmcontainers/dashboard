@@ -98,6 +98,12 @@ jobs:
       - run: go version
       - run: GOOS=js GOARCH=wasm CGO_ENABLED=0 go vet ./...
       - run: GOOS=js GOARCH=wasm CGO_ENABLED=0 go build ./...
+      # The site as pages.yml builds it: outside the checkout, and the
+      # programs must say they come from this commit, unmodified.
+      - name: site build stamps a clean commit
+        run: |
+          go run ./cmd/site build --out "$RUNNER_TEMP/site" --version "${GITHUB_SHA::12}"
+          go run ./cmd/site check --revision "$(git rev-parse HEAD)" "$RUNNER_TEMP/site/dashboard.wasm" "$RUNNER_TEMP/site/engine.wasm"
 
   cross:
     name: cross ${{ matrix.goos }}/${{ matrix.goarch }}
