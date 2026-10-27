@@ -12,9 +12,9 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/go-fleettools/buildstamp"
 	"github.com/spf13/cobra"
 
-	"github.com/go-wasmcontainers/dashboard/internal/buildstamp"
 	"github.com/go-wasmcontainers/dashboard/internal/site"
 )
 

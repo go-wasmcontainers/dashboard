@@ -13,6 +13,8 @@ github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707/go.mod h1:qssHWj6
 github.com/dsnet/golib v0.0.0-20171103203638-1ea166775780/go.mod h1:Lj+Z9rebOhdfkVLjJ8T6VcRQv3SXugXy999NBtR9aFY=
 github.com/go-crdt/crdt v0.57.0 h1:sNLDTVCEnSb20gm77BUuYav8dzj5krmly/z9O7eRMCo=
 github.com/go-crdt/crdt v0.57.0/go.mod h1:zdVTTDLGV5JYAoTJDqCivcAT+/B5gGebDsVd8QNZpVs=
+github.com/go-fleettools/buildstamp v0.1.0 h1:c+svI3pTq5nUqjVKhuR3H8QTDED4e2kfPhNHiJ5RLy8=
+github.com/go-fleettools/buildstamp v0.1.0/go.mod h1:Tq6ab85YZFvXCpvHp/AmBtB8kI0mzAYgqVGl0qPQO9Q=
 github.com/go-gfx/gfx v0.36.1 h1:dnqxna+69Hr5ioGadB2UDe6wrXeqwPOhqftr6YONgpQ=
 github.com/go-gfx/gfx v0.36.1/go.mod h1:Tst3pkyuqFV13Ab98WZVxgJmFN4GZtTKoqwRkBZKko8=
 github.com/go-icons/iconoir v0.3.0 h1:kHG2sU5IsCvtBS1JICuXgfFo5f8UfwY1m7KYMVy97CI=

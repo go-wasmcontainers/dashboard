@@ -14,9 +14,9 @@ import (
 // worker's {t:"class"} message).
 type ClassStatus struct {
 	// State is "joined", "left", "error", or "" before any report.
-	State                                   string
+	State                                 string
 	Relay, Label, Domain, Network, Subnet string
-	Error                                   string
+	Error                                 string
 }
 
 // ClassHost is the page around the dashboard, which owns the engine

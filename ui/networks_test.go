@@ -54,7 +54,9 @@ func TestNetworksView(t *testing.T) {
 		t.Errorf("hover = %q", h)
 	}
 	r.click("networks.create")
-	r.until("lab listed", func(p Probe) bool { return slices.Contains(p.Networks, "lab") && p.LastCommand == "wctr network create lab" })
+	r.until("lab listed", func(p Probe) bool {
+		return slices.Contains(p.Networks, "lab") && p.LastCommand == "wctr network create lab"
+	})
 
 	// Select it: inspect shows it, the line is `wctr network inspect lab`.
 	r.clickRow(r.s.nTable, slices.Index(r.s.Probe().Networks, "lab"))

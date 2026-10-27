@@ -261,7 +261,9 @@ func TestJoinDialog(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := &driver{t: t, page: page, log: &log}
-	d.until("the class offer", 90*time.Second, func(p ui.Probe) bool { return p.Boxes["class.button"].W > 0 || p.View == "Containers" && strings.HasPrefix(p.Status[0], "engine ") })
+	d.until("the class offer", 90*time.Second, func(p ui.Probe) bool {
+		return p.Boxes["class.button"].W > 0 || p.View == "Containers" && strings.HasPrefix(p.Status[0], "engine ")
+	})
 	d.press("Alt+4")
 	d.until("class button", 10*time.Second, func(p ui.Probe) bool { return p.View == "Networks" && p.Boxes["class.button"].W > 0 })
 	d.click("class.button")

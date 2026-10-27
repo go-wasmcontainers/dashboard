@@ -69,7 +69,7 @@ take.)
 | [`engine`](engine) | the `Engine` interface over the engine's `api.Client`; volumes, disk usage and events answer `ErrUnsupported` on the router's own 404, so the dashboard lights them up by itself when the engine serves them |
 | [`bridge`](bridge) | HTTP over `postMessage` between the page (dashboard, canvas) and the engine's Web Worker; responses stream (log follow, wait, pull) |
 | [`cmd/dashboard`](cmd/dashboard), [`cmd/engine-worker`](cmd/engine-worker) | the two `js/wasm` programs of the page |
-| [`cmd/site`](cmd/site) | builds the demo site (`site build --out dist`) and serves it (`site serve --dir dist`). `site check [--revision SHA] FILE...` reads the Go build info, in wasm too, and fails unless the program was built from a clean commit; the Pages build runs it. |
+| [`cmd/site`](cmd/site) | builds the demo site (`site build --out dist`) and serves it (`site serve --dir dist`). `site check [--revision SHA] FILE...` reads the Go build info, in wasm too ([go-fleettools/buildstamp](https://github.com/go-fleettools/buildstamp)), and fails unless the program was built from a clean commit; the Pages build runs it. |
 | [`integration`](integration), [`e2e`](e2e) | the viewmodels against a real engine (wazero) through the bridge; the page in real browsers (`go test -tags e2e ./e2e/`) |
 
 go-widgets gained a terminal emulator for this ([`toolkit.Terminal`](https://github.com/go-widgets/toolkit)

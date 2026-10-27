@@ -42,9 +42,9 @@ type Probe struct {
 	ClassOpen  bool
 	ClassError string
 	CodeLength int
-	Memory      float64
-	CPU         string
-	Dark        bool
+	Memory     float64
+	CPU        string
+	Dark       bool
 }
 
 func screenText(s *vt.Screen) string {
@@ -65,7 +65,7 @@ func (s *Scene) named() map[string]toolkit.Widget {
 		"run.go": s.runGo, "run.rm": s.runRm, "panel.close": s.panelClose,
 		"volumes.table": s.vTable, "volumes.name": s.vName, "volumes.create": s.vCreate, "volumes.remove": s.vRemove,
 		"volumes.force": s.vForce, "volumes.prune": s.vPrune, "volumes.all": s.vAll, "volumes.inspect": s.vInspect,
-		"terminal": s.term,
+		"terminal":       s.term,
 		"networks.table": s.nTable, "networks.name": s.nName, "networks.create": s.nCreate, "networks.remove": s.nRemove,
 		"networks.inspect": s.nInspect, "class.button": s.classBtn, "class.relay": s.jRelay, "class.name": s.jName,
 		"class.code": s.jCode, "class.ok": s.jOK, "class.change": s.jChange, "class.cancel": s.jCancel,
