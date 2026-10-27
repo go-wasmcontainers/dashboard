@@ -125,10 +125,10 @@ func TestDashboard(t *testing.T) {
 	// Terminal: navigate with the keyboard, type a command.
 	r.s.KeyDown("F6") // the navigation
 	r.s.Modifiers(webcanvas.Modifiers{Alt: true})
-	r.s.KeyDown("4")
+	r.s.KeyDown("5")
 	r.s.Modifiers(webcanvas.Modifiers{})
 	if r.s.Probe().View != "Terminal" {
-		t.Fatalf("Alt+4: %s", r.s.Probe().View)
+		t.Fatalf("Alt+5: %s", r.s.Probe().View)
 	}
 	r.click("terminal")
 	r.typeText("wctr run -d --name web clock -interval 20ms")
@@ -142,7 +142,8 @@ func TestDashboard(t *testing.T) {
 		t.Fatal("a global shortcut stole a key from the terminal")
 	}
 	r.s.KeyDown("F6")      // terminal -> navigation
-	r.s.KeyDown("ArrowUp") // nav: Terminal -> Volumes
+	r.s.KeyDown("ArrowUp") // nav: Terminal -> Networks
+	r.s.KeyDown("ArrowUp")
 	r.s.KeyDown("ArrowUp")
 	r.s.KeyDown("ArrowUp")
 	if v := r.s.Probe().View; v != "Containers" {

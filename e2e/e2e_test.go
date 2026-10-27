@@ -150,7 +150,7 @@ func session(t *testing.T, pw *playwright.Playwright, browser string, isolate bo
 	t.Logf("%s: dashboard ready in %s", browser, time.Since(t0).Round(time.Millisecond))
 
 	// Keyboard: F6 to the navigation, down to Terminal; type a run.
-	d.press("F6", "ArrowDown", "ArrowDown", "ArrowDown")
+	d.press("F6", "ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown")
 	d.until("terminal view", 5*time.Second, func(p ui.Probe) bool { return p.View == "Terminal" })
 	d.click("terminal")
 	// One key press per character, as a person types (Playwright's Type
@@ -169,7 +169,7 @@ func session(t *testing.T, pw *playwright.Playwright, browser string, isolate bo
 	// Ctrl+L belongs to the terminal (it clears it), not to the browser.
 	d.press("Control+l")
 	// Back to the containers: select web with the keyboard, stop it with a click.
-	d.press("F6", "ArrowUp", "ArrowUp", "ArrowUp")
+	d.press("F6", "ArrowUp", "ArrowUp", "ArrowUp", "ArrowUp")
 	d.until("containers view", 5*time.Second, func(p ui.Probe) bool { return p.View == "Containers" })
 	d.press("F6", "ArrowDown")
 	d.until("web selected", 5*time.Second, func(p ui.Probe) bool { return p.Selected != "" })
@@ -183,10 +183,120 @@ func session(t *testing.T, pw *playwright.Playwright, browser string, isolate bo
 		t.Errorf("last command = %q", p.LastCommand)
 	}
 	// The terminal shows what the button did.
-	d.press("F6", "ArrowDown", "ArrowDown", "ArrowDown")
+	d.press("F6", "ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown")
 	d.until("the action in the terminal", 10*time.Second, func(p ui.Probe) bool {
 		return strings.Contains(p.Terminal, "# dashboard: wctr stop web")
 	})
+	// Networks: one up from the terminal (the navigation has the focus);
+	// create one by name.
+	d.press("ArrowUp")
+	p = d.until("networks view", 10*time.Second, func(p ui.Probe) bool { return p.View == "Networks" && len(p.Networks) > 0 })
+	if _, ok := p.Boxes["class.button"]; ok {
+		t.Error("this page cannot join a class, yet the dashboard offers it")
+	}
+	d.click("networks.name")
+	d.typeKeys("lab" + fmt.Sprint(time.Now().UnixNano()%1000))
+	d.click("networks.create")
+	d.until("network created", 30*time.Second, func(p ui.Probe) bool {
+		return strings.HasPrefix(p.LastCommand, "wctr network create lab") && len(p.Networks) > 1 && p.Pending == 0
+	})
+}
+
+// typeKeys presses one key per character, as a person types.
+func (d *driver) typeKeys(s string) {
+	d.t.Helper()
+	for _, c := range s {
+		k := string(c)
+		if c == ' ' {
+			k = "Space"
+		}
+		d.press(k)
+	}
+}
+
+// classStub is a page that can join a class, standing in for the
+// playground's: window.__wctrClass with a relay already chosen, and a
+// record of what the page posts to the engine worker as {t:"join"}.
+const classStub = `(() => {
+  window.__joins = [];
+  const post = Worker.prototype.postMessage;
+  Worker.prototype.postMessage = function (m, ...rest) {
+    if (m && m.t === "join") window.__joins.push(JSON.stringify(m));
+    return post.call(this, m, ...rest);
+  };
+  window.__wctrClass = { relay: "https://relay.example", used: [],
+    useRelay(o) { this.used.push(o); }, status() { return null; } };
+})()`
+
+// TestJoinDialog types a join code into the dashboard's dialog in a real
+// browser and checks it went to the engine worker once and nowhere else:
+// not the URL, the storages, the DOM, the test hook, the screen's text.
+func TestJoinDialog(t *testing.T) {
+	if os.Getenv("E2E_URL") != "" {
+		t.Skip("the deployed page is the playground's to test")
+	}
+	if only := os.Getenv("E2E_BROWSERS"); only != "" && !strings.Contains(only, "chromium") {
+		t.Skip("Chromium only")
+	}
+	pw, err := playwright.Run()
+	if err != nil {
+		t.Fatalf("playwright: %v", err)
+	}
+	defer pw.Stop()
+	b, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{Headless: playwright.Bool(true), Timeout: playwright.Float(180000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	page, err := b.NewPage(playwright.BrowserNewPageOptions{Viewport: &playwright.Size{Width: 1280, Height: 800}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := page.AddInitScript(playwright.Script{Content: playwright.String(classStub)}); err != nil {
+		t.Fatal(err)
+	}
+	var log []string
+	page.On("console", func(m playwright.ConsoleMessage) { log = append(log, m.Text()) })
+	if _, err := page.Goto(serve(t, true)); err != nil {
+		t.Fatal(err)
+	}
+	d := &driver{t: t, page: page, log: &log}
+	d.until("the class offer", 90*time.Second, func(p ui.Probe) bool { return p.Boxes["class.button"].W > 0 || p.View == "Containers" && strings.HasPrefix(p.Status[0], "engine ") })
+	d.press("Alt+4")
+	d.until("class button", 10*time.Second, func(p ui.Probe) bool { return p.View == "Networks" && p.Boxes["class.button"].W > 0 })
+	d.click("class.button")
+	d.until("dialog", 5*time.Second, func(p ui.Probe) bool { return p.ClassOpen && p.Focus == "class.name" })
+	d.typeKeys("ada")
+	d.click("class.code")
+	const code = "S3CRET-JOIN-CODE"
+	d.typeKeys(code)
+	d.until("code typed", 5*time.Second, func(p ui.Probe) bool { return p.CodeLength == len(code) })
+	d.press("Enter")
+	p := d.until("code sent", 10*time.Second, func(p ui.Probe) bool { return p.CodeLength == 0 })
+	joins, err := page.Evaluate("() => window.__joins")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if js, _ := joins.([]any); len(js) != 1 || js[0] != `{"t":"join","code":"`+code+`","name":"ada"}` {
+		t.Errorf("joins posted = %v", joins)
+	}
+	where, err := page.Evaluate(`() => [location.href, JSON.stringify(localStorage), JSON.stringify(sessionStorage),
+		document.documentElement.outerHTML, window.__dashboard.state()].join("\n")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := where.(string)
+	// The planted positive: the name, which is not secret, IS in what was
+	// read (the probe's last command), so a code there would be seen too.
+	if !strings.Contains(s, "join class at https://relay.example as ada") {
+		t.Fatalf("the leak check read nothing useful (%d bytes)", len(s))
+	}
+	if strings.Contains(s, code) {
+		t.Error("the join code is readable outside the worker")
+	}
+	if !strings.HasPrefix(p.LastCommand, "join class at https://relay.example as ada") {
+		t.Errorf("last command = %q", p.LastCommand)
+	}
 }
 
 func TestBrowsers(t *testing.T) {

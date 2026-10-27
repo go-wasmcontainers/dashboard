@@ -41,10 +41,34 @@ type fake struct {
 	statsErr   error
 	volInspect string
 	prune      api.VolumePruneResponse
+	networks   []engine.Network
+	netErr     error
+	netInspect string
+}
+
+func (f *fake) Networks(context.Context) ([]engine.Network, error) {
+	f.record("networks")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.networks, f.netErr
+}
+
+func (f *fake) NetworkCreate(_ context.Context, o api.NetworkCreateRequest) (api.NetworkCreateResponse, error) {
+	return api.NetworkCreateResponse{ID: "n1"}, f.record("network create " + o.Name)
+}
+
+func (f *fake) NetworkInspect(_ context.Context, name string) (json.RawMessage, error) {
+	err := f.record("network inspect " + name)
+	return json.RawMessage(get(f, func() string { return f.netInspect })), err
+}
+
+func (f *fake) NetworkRemove(_ context.Context, name string) error {
+	return f.record("network rm " + name)
 }
 
 func newFake() *fake {
-	return &fake{err: map[string]error{}, volErr: engine.ErrUnsupported, eventsErr: engine.ErrUnsupported,
+	return &fake{err: map[string]error{}, volErr: engine.ErrUnsupported, eventsErr: engine.ErrUnsupported, netErr: engine.ErrUnsupported,
+		netInspect: `{"Name":"class","Driver":"relay"}`,
 		inspect:    `{"Id":"c1","State":{"Status":"exited","Running":false,"ExitCode":3,"FinishedAt":"x"},"Config":{"Env":["B=2","A=1"]},"Mounts":[{"Type":"volume","Name":"data","Destination":"/data","RW":true},{"Source":"/v","Destination":"/ro"}]}`,
 		volInspect: `{"Name":"data","Driver":"local"}`}
 }

@@ -29,12 +29,13 @@ const (
 	ViewContainers = iota
 	ViewImages
 	ViewVolumes
+	ViewNetworks
 	ViewTerminal
 	NumViews
 )
 
 // ViewNames are the navigation labels.
-var ViewNames = [NumViews]string{"Containers", "Images", "Volumes", "Terminal"}
+var ViewNames = [NumViews]string{"Containers", "Images", "Volumes", "Networks", "Terminal"}
 
 // PollInterval is how often the dashboard refreshes when the engine has
 // no event stream.
@@ -63,6 +64,8 @@ type App struct {
 	Containers *Containers
 	Images     *Images
 	Volumes    *Volumes
+	Networks   *Networks
+	Class      *Class
 	Detail     *Detail
 	Terminal   *Terminal
 
@@ -93,6 +96,8 @@ func NewApp(eng engine.Engine, cli *CLI, post func(func())) *App {
 	a.Containers = newContainers(a)
 	a.Images = newImages(a)
 	a.Volumes = newVolumes(a)
+	a.Networks = newNetworks(a)
+	a.Class = newClass(a)
 	a.Detail = newDetail(a)
 	a.Terminal = newTerminal(a)
 	return a
@@ -111,6 +116,8 @@ type snapshot struct {
 	images     []api.ImageSummary
 	volumes    []engine.Volume
 	volErr     error
+	networks   []engine.Network
+	netErr     error
 	df         *engine.DiskUsage
 	err        error
 }
@@ -165,6 +172,7 @@ func (a *App) read(ctx context.Context) snapshot {
 		return s
 	}
 	s.volumes, s.volErr = a.eng.Volumes(ctx)
+	s.networks, s.netErr = a.eng.Networks(ctx)
 	if df, err := a.eng.DiskUsage(ctx); err == nil {
 		s.df = &df
 	}
@@ -183,6 +191,7 @@ func (a *App) apply(s snapshot) {
 	a.Containers.apply(s.containers, now)
 	a.Images.apply(s.images, now)
 	a.Volumes.apply(s.volumes, s.volErr, s.version.Version, s.df)
+	a.Networks.apply(s.networks, s.netErr, s.version.Version)
 	a.Detail.refresh()
 	running := 0
 	for _, c := range s.containers {
