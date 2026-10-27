@@ -23,6 +23,8 @@ func TestEndpoints(t *testing.T) {
 		switch r.URL.Path {
 		case "/v1.47/volumes":
 			io.WriteString(w, `{"Volumes":[{"Name":"data","Driver":"local"}],"Warnings":null}`)
+		case "/v1.47/networks":
+			io.WriteString(w, `[{"Name":"class","Driver":"relay","IPAM":{"Config":[{"Subnet":"10.42.2.0/24"}]},"Containers":{"c1":{"Name":"web","IPv4Address":"10.42.2.2/24"}}}]`)
 		case "/v1.47/system/df":
 			io.WriteString(w, `{"LayersSize":42,"Images":[{"Id":"sha256:a"}],"Volumes":[{"Name":"data","UsageData":{"Size":5,"RefCount":1}}],"Storage":{"Kind":"IndexedDB","Usage":10,"Quota":100}}`)
 		case "/v1.47/events":
@@ -56,6 +58,10 @@ func TestEndpoints(t *testing.T) {
 	vols, err := e.Volumes(ctx)
 	if err != nil || len(vols) != 1 || vols[0].Name != "data" {
 		t.Errorf("Volumes = %+v, %v", vols, err)
+	}
+	nets, err := e.Networks(ctx)
+	if err != nil || len(nets) != 1 || nets[0].Driver != "relay" || nets[0].Containers["c1"].IPv4Address != "10.42.2.2/24" {
+		t.Errorf("Networks = %+v, %v", nets, err)
 	}
 	df, err := e.DiskUsage(ctx)
 	if err != nil || df.LayersSize != 42 || df.Volumes[0].UsageData.Size != 5 || df.Storage.Kind != "IndexedDB" {
@@ -134,6 +140,9 @@ func TestErrors(t *testing.T) {
 	status, body = 404, "404 page not found\n"
 	if err := e.Stats(ctx, "c1", false, func(Stats) {}); !errors.Is(err, ErrUnsupported) {
 		t.Errorf("stats on an old engine: %v", err)
+	}
+	if _, err := e.Networks(ctx); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("networks on an old engine: %v", err)
 	}
 	status, body = 200, "{not json"
 	if _, err := e.DiskUsage(ctx); err == nil {

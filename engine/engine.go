@@ -5,7 +5,7 @@
 // engine served in-process.
 //
 // Endpoints a given engine does not serve (an older engine: volumes, disk
-// usage, the event stream, stats) answer ErrUnsupported, told apart from an
+// usage, the event stream, stats, networks) answer ErrUnsupported, told apart from an
 // ordinary "not found" by the router's own 404 (a plain-text body, not the
 // API's JSON error). The dashboard then says what it needs instead of
 // inventing data.
@@ -38,6 +38,9 @@ type DiskUsage = api.SystemDataUsage
 // Event is one message of GET /events.
 type Event = api.EventMessage
 
+// Network is one entry of GET /networks.
+type Network = api.Network
+
 // Stats is one reading of GET /containers/{id}/stats.
 type Stats = api.ContainerStats
 
@@ -66,6 +69,10 @@ type Engine interface {
 	VolumeRemove(ctx context.Context, name string, force bool) error
 	VolumesPrune(ctx context.Context, all bool) (api.VolumePruneResponse, error)
 	DiskUsage(ctx context.Context) (DiskUsage, error)
+	Networks(ctx context.Context) ([]Network, error)
+	NetworkCreate(ctx context.Context, o api.NetworkCreateRequest) (api.NetworkCreateResponse, error)
+	NetworkInspect(ctx context.Context, ref string) (json.RawMessage, error)
+	NetworkRemove(ctx context.Context, ref string) error
 	// Events calls fn for each event since the given Unix time (0: from
 	// now) until ctx ends or the stream does (the engine cuts off a slow
 	// reader: reconnect with since and resynchronise).
@@ -106,6 +113,13 @@ func (h *HTTP) Volumes(ctx context.Context) ([]Volume, error) {
 	var out api.VolumeListResponse
 	err := h.get(ctx, "/volumes", nil, &out)
 	return out.Volumes, err
+}
+
+// Networks lists networks (ErrUnsupported from an engine without them).
+func (h *HTTP) Networks(ctx context.Context) ([]Network, error) {
+	var out []Network
+	err := h.get(ctx, "/networks", nil, &out)
+	return out, err
 }
 
 // DiskUsage reports storage use.

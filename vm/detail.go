@@ -106,6 +106,9 @@ type Detail struct {
 	Env   *mvvm.ObservableList[string]
 	// Mounts lists "source -> destination"; empty with a note when none.
 	Mounts *mvvm.ObservableList[string]
+	// Networks lists "network address (dns names)", one per network the
+	// container is on (addresses while it runs).
+	Networks *mvvm.ObservableList[string]
 	// Follow streams new log output as it comes (`wctr logs -f`).
 	Follow *mvvm.Observable[bool]
 	// LogsLine is the command line the logs pane stands for.
@@ -143,7 +146,7 @@ func newDetail(a *App) *Detail {
 	d := &Detail{
 		app: a, ID: mvvm.NewObservable(""), Title: mvvm.NewObservable(""), State: mvvm.NewObservable(""),
 		Tree: mvvm.NewObservableList[InspectNode](), Env: mvvm.NewObservableList[string](),
-		Mounts: mvvm.NewObservableList[string](), Follow: mvvm.NewObservable(true), LogsLine: mvvm.NewObservable(""),
+		Mounts: mvvm.NewObservableList[string](), Networks: mvvm.NewObservableList[string](), Follow: mvvm.NewObservable(true), LogsLine: mvvm.NewObservable(""),
 		Memory: mvvm.NewObservable(-1.0), MemoryText: mvvm.NewObservable(""), MemHistory: mvvm.NewObservableList[float64](),
 		CPU: mvvm.NewObservable("--"), CPUNote: mvvm.NewObservable(""), Counters: mvvm.NewObservable(""),
 		StatsLine: mvvm.NewObservable(""),
@@ -185,6 +188,7 @@ func (d *Detail) Close() {
 	d.Tree.Clear()
 	d.Env.Clear()
 	d.Mounts.Clear()
+	d.Networks.Clear()
 	d.LogsLine.Set("")
 	if d.LogReset != nil {
 		d.LogReset()
@@ -299,6 +303,32 @@ func (d *Detail) inspect() {
 	}()
 }
 
+// containerNetworks lists the networks of an inspected container: its
+// NetworkSettings (with the address while it runs), or, for a container
+// that never ran, the network it asked for (HostConfig.NetworkMode).
+func containerNetworks(ins api.ContainerInspect) []string {
+	var out []string
+	for name, ep := range ins.NetworkSettings.Networks {
+		s := Clean(name, 64)
+		if ep.IPAddress != "" {
+			s += " " + Clean(ep.IPAddress, 64)
+		}
+		if len(ep.DNSNames) > 0 {
+			names := make([]string, 0, min(len(ep.DNSNames), maxAttached))
+			for _, n := range ep.DNSNames[:min(len(ep.DNSNames), maxAttached)] {
+				names = append(names, Clean(n, 64))
+			}
+			s += " (" + strings.Join(names, ", ") + ")"
+		}
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	if len(out) == 0 && ins.HostConfig.NetworkMode != "" {
+		out = append(out, Clean(ins.HostConfig.NetworkMode, 64)+" (no address: not running)")
+	}
+	return out
+}
+
 func (d *Detail) applyInspect(raw []byte) {
 	tree, err := InspectTree(raw)
 	if err != nil {
@@ -340,6 +370,7 @@ func (d *Detail) applyInspect(raw []byte) {
 		mounts = append(mounts, Clean(fmt.Sprintf("%s %s -> %s (%s)", kind, src, m.Destination, mode), 500))
 	}
 	replace(d.Mounts, mounts)
+	replace(d.Networks, containerNetworks(ins))
 	if running := st.Running; running != d.statsRunning || d.statsCancel == nil {
 		d.streamStats(running)
 	}

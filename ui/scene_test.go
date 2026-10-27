@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -125,10 +126,10 @@ func TestDashboard(t *testing.T) {
 	// Terminal: navigate with the keyboard, type a command.
 	r.s.KeyDown("F6") // the navigation
 	r.s.Modifiers(webcanvas.Modifiers{Alt: true})
-	r.s.KeyDown("4")
+	r.s.KeyDown("5")
 	r.s.Modifiers(webcanvas.Modifiers{})
 	if r.s.Probe().View != "Terminal" {
-		t.Fatalf("Alt+4: %s", r.s.Probe().View)
+		t.Fatalf("Alt+5: %s", r.s.Probe().View)
 	}
 	r.click("terminal")
 	r.typeText("wctr run -d --name web clock -interval 20ms")
@@ -142,7 +143,8 @@ func TestDashboard(t *testing.T) {
 		t.Fatal("a global shortcut stole a key from the terminal")
 	}
 	r.s.KeyDown("F6")      // terminal -> navigation
-	r.s.KeyDown("ArrowUp") // nav: Terminal -> Volumes
+	r.s.KeyDown("ArrowUp") // nav: Terminal -> Networks
+	r.s.KeyDown("ArrowUp")
 	r.s.KeyDown("ArrowUp")
 	r.s.KeyDown("ArrowUp")
 	if v := r.s.Probe().View; v != "Containers" {
@@ -352,6 +354,11 @@ func BenchmarkFrame(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+	for i := 0; i < 50; i++ {
+		if _, err := eng.NetworkCreate(ctx, api.NetworkCreateRequest{Name: fmt.Sprintf("net%02d", i)}); err != nil {
+			b.Fatal(err)
+		}
+	}
 	s := New(app, q, 1280, 800)
 	n := app.Refreshed.Get()
 	app.Refresh()
@@ -363,7 +370,10 @@ func BenchmarkFrame(b *testing.B) {
 	if app.Containers.Rows.Len() != 200 || app.Images.Rows.Len() != 100 {
 		b.Fatalf("%d containers, %d images", app.Containers.Rows.Len(), app.Images.Rows.Len())
 	}
-	for _, view := range []int{vm.ViewContainers, vm.ViewImages, vm.ViewTerminal} {
+	if app.Networks.Rows.Len() < 50 {
+		b.Fatalf("%d networks", app.Networks.Rows.Len())
+	}
+	for _, view := range []int{vm.ViewContainers, vm.ViewImages, vm.ViewNetworks, vm.ViewTerminal} {
 		app.View.Set(view)
 		name := vm.ViewNames[view]
 		b.Run(name, func(b *testing.B) {

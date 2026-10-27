@@ -133,6 +133,8 @@ func (s *Scene) layout() {
 		s.vTable.SetBounds(rect{X: body.X, Y: body.Y + line + g, W: body.W, H: th})
 		iy := body.Y + line + 2*g + th
 		s.vInspect.SetBounds(rect{X: body.X, Y: iy, W: body.W, H: body.Y + body.H - iy})
+	case vm.ViewNetworks:
+		s.layoutNetworks(bar, body)
 	case vm.ViewTerminal:
 		s.term.SetBounds(c)
 	}
@@ -157,6 +159,8 @@ func (s *Scene) widgets() []toolkit.Widget {
 		}
 	case vm.ViewVolumes:
 		out = append(out, s.vName, s.vCreate, s.vRemove, s.vForce, s.vPrune, s.vAll, s.vTable, s.vInspect)
+	case vm.ViewNetworks:
+		out = append(out, s.networkWidgets()...)
 	case vm.ViewTerminal:
 		out = append(out, s.term)
 	}
@@ -181,6 +185,8 @@ func (s *Scene) visible() []toolkit.Widget {
 		}
 	case vm.ViewVolumes:
 		out = append(out, s.vMsg, s.vNotice)
+	case vm.ViewNetworks:
+		out = append(out, s.networkLabels()...)
 	}
 	return out
 }
@@ -321,7 +327,7 @@ func (s *Scene) Char(c string) bool {
 // KeyDown implements webcanvas.App. The terminal, when it has focus, gets
 // every key it claims (Ctrl-C/D/L/R/W/U, arrows, Tab, ...) before any
 // global shortcut; the shortcuts are F6 (next region), Tab / Shift-Tab
-// (next / previous control) and Alt+1..4 (views).
+// (next / previous control) and Alt+1..5 (views).
 func (s *Scene) KeyDown(key string) bool {
 	ev := toolkit.Event{Kind: toolkit.EventKeyDown, Code: key, Ctrl: s.mods.Ctrl, Shift: s.mods.Shift, Alt: s.mods.Alt, Meta: s.mods.Meta}
 	if t, ok := s.focus.(*toolkit.Terminal); ok && t.ClaimsKey(ev) {
@@ -375,6 +381,8 @@ func (s *Scene) main() toolkit.Widget {
 		return s.iTable
 	case vm.ViewVolumes:
 		return s.vTable
+	case vm.ViewNetworks:
+		return s.nTable
 	}
 	return s.term
 }

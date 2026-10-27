@@ -52,6 +52,7 @@ func main() {
 		lineedit.WctrCompleter(opts, vm.Builtins))
 	w, h := g.Get("innerWidth").Int(), g.Get("innerHeight").Int()
 	scene = ui.New(app, q, w, h)
+	connectClass(g, worker, app, q)
 
 	g.Set("__dashboard", map[string]any{
 		"version": version,

@@ -32,9 +32,19 @@ type Probe struct {
 	Volumes     string
 	VolumeNames []string
 	Mounts      []string
-	Memory      float64
-	CPU         string
-	Dark        bool
+	Networks    []string
+	// ContainerNetworks is the shown container's Networks tab.
+	ContainerNetworks []string
+	// Class is the class status line, ClassOpen the dialog, ClassError its
+	// message, CodeLength how many characters the code field holds (never
+	// the code itself).
+	Class      string
+	ClassOpen  bool
+	ClassError string
+	CodeLength int
+	Memory     float64
+	CPU        string
+	Dark       bool
 }
 
 func screenText(s *vt.Screen) string {
@@ -55,7 +65,10 @@ func (s *Scene) named() map[string]toolkit.Widget {
 		"run.go": s.runGo, "run.rm": s.runRm, "panel.close": s.panelClose,
 		"volumes.table": s.vTable, "volumes.name": s.vName, "volumes.create": s.vCreate, "volumes.remove": s.vRemove,
 		"volumes.force": s.vForce, "volumes.prune": s.vPrune, "volumes.all": s.vAll, "volumes.inspect": s.vInspect,
-		"terminal": s.term,
+		"terminal":       s.term,
+		"networks.table": s.nTable, "networks.name": s.nName, "networks.create": s.nCreate, "networks.remove": s.nRemove,
+		"networks.inspect": s.nInspect, "class.button": s.classBtn, "class.relay": s.jRelay, "class.name": s.jName,
+		"class.code": s.jCode, "class.ok": s.jOK, "class.change": s.jChange, "class.cancel": s.jCancel,
 	}
 	for i, e := range s.runFields {
 		m["run."+[]string{"image", "name", "command", "env", "entrypoint", "workdir", "memory", "volumes"}[i]] = e
@@ -96,6 +109,12 @@ func (s *Scene) Probe() Probe {
 	for i := 0; i < a.Volumes.Rows.Len(); i++ {
 		p.VolumeNames = append(p.VolumeNames, a.Volumes.Rows.At(i).Name)
 	}
+	for i := 0; i < a.Networks.Rows.Len(); i++ {
+		p.Networks = append(p.Networks, a.Networks.Rows.At(i).Name)
+	}
+	p.ContainerNetworks = a.Detail.Networks.Slice()
+	p.Class, p.ClassOpen, p.ClassError = s.classInfo.Text().Get(), s.dialogOpen(), a.Class.Error.Get()
+	p.CodeLength = len([]rune(s.jCode.Text().Get()))
 	p.Mounts = a.Detail.Mounts.Slice()
 	p.Memory, p.CPU = a.Detail.Memory.Get(), a.Detail.CPU.Get()
 	return p

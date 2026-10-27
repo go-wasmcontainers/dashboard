@@ -83,6 +83,23 @@ type Scene struct {
 	vForce, vAll             *toolkit.CheckButton
 	vInspect                 *toolkit.ListBox
 
+	// networks view, and the class status and "Join class" dialog on it
+	nTable                *toolkit.Table
+	nMsg, classInfo       *toolkit.Label
+	nName                 *toolkit.Entry
+	nCreate, nRemove      *toolkit.Button
+	classBtn              *toolkit.Button
+	nInspect              *toolkit.ListBox
+	jTitle, jRelayShown   *toolkit.Label
+	jErr, jNote           *toolkit.Label
+	jRelay, jName, jCode  *toolkit.Entry
+	jOK, jChange, jCancel *toolkit.Button
+	jRelayLbl, jNameLbl   *toolkit.Label
+	jCodeLbl              *toolkit.Label
+
+	// the detail's Networks tab
+	dNets *toolkit.ListBox
+
 	// the detail's Stats tab
 	stats *statsPanel
 
@@ -247,6 +264,9 @@ func (s *Scene) build() {
 	s.detail.AddTab("Inspect", s.inspect)
 	s.detail.AddTab("Environment", s.env)
 	s.detail.AddTab("Mounts", s.mounts)
+	s.dNets = toolkit.NewListBox(nil)
+	bindItems(s.dNets, d.Networks, func(n string) string { return n }, inv)
+	s.detail.AddTab("Networks", s.dNets)
 	s.stats = newStatsPanel(d, inv)
 	s.detail.AddTab("Stats", s.stats)
 
@@ -354,6 +374,8 @@ func (s *Scene) build() {
 	s.vInspect = toolkit.NewListBox(nil)
 	bindItems(s.vInspect, v.Inspect, inspectLine, inv)
 
+	s.buildNetworks()
+
 	// Terminal.
 	s.term = toolkit.NewTerminal(80, 24, 5000)
 	s.term.Font = monoFont
@@ -391,7 +413,7 @@ const navRowH = 32
 // navIcons are the views' icons: Iconoir glyphs (MIT, go-icons/iconoir),
 // drawn through the toolkit's icon seam, rasterised at the row's device
 // size and recoloured to the row's ink.
-var navIcons = [vm.NumViews]string{"box", "package", "database", "terminal"}
+var navIcons = [vm.NumViews]string{"box", "package", "database", "network", "terminal"}
 
 // navItem draws a navigation row: its icon, then its label.
 func navItem(p painter.Painter, theme *toolkit.Theme, rc toolkit.Rect, index int, item string, selected bool, ink toolkit.RGBA) {
@@ -476,6 +498,7 @@ func (s *Scene) updateButtons() {
 	_, img := s.app.Images.Find(s.app.Images.Selected.Get())
 	s.iRemove.Disabled().Set(!img)
 	s.vRemove.Disabled().Set(s.app.Volumes.Selected.Get() == "")
+	s.nRemove.Disabled().Set(s.app.Networks.Selected.Get() == "")
 }
 
 // buttonLine is the command line a hovered action button stands for.
@@ -509,6 +532,13 @@ func (s *Scene) buttonLine(b *toolkit.Button) string {
 		return "Remove = " + v.RemoveLine(v.Selected.Get(), s.vForce.Checked().Get())
 	case b == s.vPrune:
 		return "Prune = " + v.PruneLine(s.vAll.Checked().Get())
+	}
+	n := s.app.Networks
+	switch {
+	case b == s.nCreate:
+		return "Create = " + n.CreateLine()
+	case b == s.nRemove && n.Selected.Get() != "":
+		return "Remove = " + n.RemoveLine(n.Selected.Get())
 	}
 	return ""
 }
