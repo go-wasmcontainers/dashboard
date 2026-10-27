@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -353,6 +354,11 @@ func BenchmarkFrame(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+	for i := 0; i < 50; i++ {
+		if _, err := eng.NetworkCreate(ctx, api.NetworkCreateRequest{Name: fmt.Sprintf("net%02d", i)}); err != nil {
+			b.Fatal(err)
+		}
+	}
 	s := New(app, q, 1280, 800)
 	n := app.Refreshed.Get()
 	app.Refresh()
@@ -364,7 +370,10 @@ func BenchmarkFrame(b *testing.B) {
 	if app.Containers.Rows.Len() != 200 || app.Images.Rows.Len() != 100 {
 		b.Fatalf("%d containers, %d images", app.Containers.Rows.Len(), app.Images.Rows.Len())
 	}
-	for _, view := range []int{vm.ViewContainers, vm.ViewImages, vm.ViewTerminal} {
+	if app.Networks.Rows.Len() < 50 {
+		b.Fatalf("%d networks", app.Networks.Rows.Len())
+	}
+	for _, view := range []int{vm.ViewContainers, vm.ViewImages, vm.ViewNetworks, vm.ViewTerminal} {
 		app.View.Set(view)
 		name := vm.ViewNames[view]
 		b.Run(name, func(b *testing.B) {
