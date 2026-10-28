@@ -100,6 +100,11 @@ type Scene struct {
 	// the detail's Networks tab
 	dNets *toolkit.ListBox
 
+	// surfaces view: one pane per GPU surface, frames drawn as layers
+	sEmpty        *toolkit.Label
+	panes         []*pane
+	surfaceCanvas SurfaceCanvas
+
 	// the detail's Stats tab
 	stats *statsPanel
 
@@ -375,6 +380,7 @@ func (s *Scene) build() {
 	bindItems(s.vInspect, v.Inspect, inspectLine, inv)
 
 	s.buildNetworks()
+	s.buildSurfaces()
 
 	// Terminal.
 	s.term = toolkit.NewTerminal(80, 24, 5000)
@@ -413,7 +419,7 @@ const navRowH = 32
 // navIcons are the views' icons: Iconoir glyphs (MIT, go-icons/iconoir),
 // drawn through the toolkit's icon seam, rasterised at the row's device
 // size and recoloured to the row's ink.
-var navIcons = [vm.NumViews]string{"box", "package", "database", "network", "terminal"}
+var navIcons = [vm.NumViews]string{"box", "package", "database", "network", "terminal", "tv"}
 
 // navItem draws a navigation row: its icon, then its label.
 func navItem(p painter.Painter, theme *toolkit.Theme, rc toolkit.Rect, index int, item string, selected bool, ink toolkit.RGBA) {

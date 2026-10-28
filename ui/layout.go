@@ -137,6 +137,8 @@ func (s *Scene) layout() {
 		s.layoutNetworks(bar, body)
 	case vm.ViewTerminal:
 		s.term.SetBounds(c)
+	case vm.ViewSurfaces:
+		s.layoutSurfaces(c)
 	}
 }
 
@@ -163,6 +165,8 @@ func (s *Scene) widgets() []toolkit.Widget {
 		out = append(out, s.networkWidgets()...)
 	case vm.ViewTerminal:
 		out = append(out, s.term)
+	case vm.ViewSurfaces:
+		out = append(out, s.surfaceWidgets()...)
 	}
 	return append(out, s.themeBtn)
 }
@@ -187,6 +191,8 @@ func (s *Scene) visible() []toolkit.Widget {
 		out = append(out, s.vMsg, s.vNotice)
 	case vm.ViewNetworks:
 		out = append(out, s.networkLabels()...)
+	case vm.ViewSurfaces:
+		out = append(out, s.surfaceLabels()...)
 	}
 	return out
 }
@@ -206,6 +212,9 @@ func (s *Scene) Draw(buf []byte) {
 	p.FillRect(side, sidebarGround(s.theme))
 	navTheme := *s.theme
 	navTheme.Surface = sidebarGround(s.theme)
+	if s.app.View.Get() == vm.ViewSurfaces {
+		s.drawSurfaceGrounds(p)
+	}
 	for _, w := range s.visible() {
 		w.Draw(p, s.theme)
 	}
@@ -383,6 +392,8 @@ func (s *Scene) main() toolkit.Widget {
 		return s.vTable
 	case vm.ViewNetworks:
 		return s.nTable
+	case vm.ViewSurfaces:
+		return s.nav
 	}
 	return s.term
 }

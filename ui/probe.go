@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+
 	"github.com/go-widgets/toolkit"
 	"github.com/go-widgets/toolkit/vt"
 
@@ -42,9 +44,13 @@ type Probe struct {
 	ClassOpen  bool
 	ClassError string
 	CodeLength int
-	Memory     float64
-	CPU        string
-	Dark       bool
+	// Surfaces are the GPU surface panes, "title | status", and SurfaceBoxes
+	// where each one's frame is drawn (canvas pixels; zero before a frame).
+	Surfaces     []string
+	SurfaceBoxes []Box
+	Memory       float64
+	CPU          string
+	Dark         bool
 }
 
 func screenText(s *vt.Screen) string {
@@ -115,6 +121,19 @@ func (s *Scene) Probe() Probe {
 	p.ContainerNetworks = a.Detail.Networks.Slice()
 	p.Class, p.ClassOpen, p.ClassError = s.classInfo.Text().Get(), s.dialogOpen(), a.Class.Error.Get()
 	p.CodeLength = len([]rune(s.jCode.Text().Get()))
+	for _, pn := range s.panes {
+		p.Surfaces = append(p.Surfaces, pn.title.Text().Get()+" | "+pn.status.Text().Get())
+		r, _ := a.Surfaces.Find(pn.id)
+		d := fit(pn.body, r.W, r.H)
+		if !pn.shown {
+			d = rect{}
+		}
+		p.SurfaceBoxes = append(p.SurfaceBoxes, Box{d.X, d.Y, d.W, d.H})
+		if pn.closed && a.View.Get() == vm.ViewSurfaces {
+			b := pn.dismiss.Bounds()
+			p.Boxes[fmt.Sprintf("surface.%d.dismiss", pn.id)] = Box{b.X, b.Y, b.W, b.H}
+		}
+	}
 	p.Mounts = a.Detail.Mounts.Slice()
 	p.Memory, p.CPU = a.Detail.Memory.Get(), a.Detail.CPU.Get()
 	return p
