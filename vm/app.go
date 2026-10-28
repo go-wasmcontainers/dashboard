@@ -31,11 +31,12 @@ const (
 	ViewVolumes
 	ViewNetworks
 	ViewTerminal
+	ViewSurfaces
 	NumViews
 )
 
 // ViewNames are the navigation labels.
-var ViewNames = [NumViews]string{"Containers", "Images", "Volumes", "Networks", "Terminal"}
+var ViewNames = [NumViews]string{"Containers", "Images", "Volumes", "Networks", "Terminal", "Surfaces"}
 
 // PollInterval is how often the dashboard refreshes when the engine has
 // no event stream.
@@ -66,6 +67,7 @@ type App struct {
 	Volumes    *Volumes
 	Networks   *Networks
 	Class      *Class
+	Surfaces   *Surfaces
 	Detail     *Detail
 	Terminal   *Terminal
 
@@ -98,6 +100,7 @@ func NewApp(eng engine.Engine, cli *CLI, post func(func())) *App {
 	a.Volumes = newVolumes(a)
 	a.Networks = newNetworks(a)
 	a.Class = newClass(a)
+	a.Surfaces = newSurfaces(a)
 	a.Detail = newDetail(a)
 	a.Terminal = newTerminal(a)
 	return a
@@ -192,6 +195,7 @@ func (a *App) apply(s snapshot) {
 	a.Images.apply(s.images, now)
 	a.Volumes.apply(s.volumes, s.volErr, s.version.Version, s.df)
 	a.Networks.apply(s.networks, s.netErr, s.version.Version)
+	a.Surfaces.publish() // container names, and frame rates that fell to 0
 	a.Detail.refresh()
 	running := 0
 	for _, c := range s.containers {

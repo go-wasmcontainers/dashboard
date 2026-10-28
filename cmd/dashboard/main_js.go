@@ -53,6 +53,7 @@ func main() {
 	w, h := g.Get("innerWidth").Int(), g.Get("innerHeight").Int()
 	scene = ui.New(app, q, w, h)
 	connectClass(g, worker, app, q)
+	connectSurfaces(worker, app, q, scene)
 
 	g.Set("__dashboard", map[string]any{
 		"version": version,

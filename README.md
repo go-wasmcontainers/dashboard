@@ -25,7 +25,7 @@ demo with its own engine in a Web Worker and three demo images (`hello`,
 watch it in Containers.
 
 > **Status: M1, on engine v0.11.0.** Containers (with stats and networks),
-> images, volumes, networks (and joining a class), status bar and terminal, kept current by the engine's event stream. Tested
+> images, volumes, networks (and joining a class), GPU surfaces, status bar and terminal, kept current by the engine's event stream. Tested
 > with Playwright in Chromium (isolation headers and the service worker
 > GitHub Pages needs); the Pages workflow also drives the live page in
 > Chromium and Firefox.
@@ -39,6 +39,7 @@ watch it in Containers.
 | **Volumes** | name, driver, mountpoint, created, size, how many containers use it; Create (`wctr volume create NAME`), the selected volume's inspect tree, Remove (Force: `wctr volume rm -f NAME`), Prune (All unused: `wctr volume prune -a -f`), with what it reclaimed. An engine older than v0.8.0 gets a message instead — never invented rows. |
 | **Networks** | name, ID, driver, subnet, and the containers attached with their addresses (`web 10.42.0.2/24`); Create (`wctr network create NAME`), the selected network's inspect tree (`wctr network inspect NAME`), Remove (`wctr network rm NAME`). A container's detail has a **Networks** tab: each network it is on, its address and DNS names. On a page that can join a class (the playground), the view also offers **Join class…**; see below. An engine older than v0.11.0 gets a message instead. |
 | **Terminal** | `wctr` run in-process against the same engine, with the engine's line editor (`cli/lineedit`: history, Ctrl-R, Tab completion of commands, flags and container names). |
+| **Surfaces** | one pane per GPU surface a container opens (`wasi-gfx:surface`, rendered by go-wasmcontainers/gpu in the engine's worker), titled `<container> — surface N`, with `W×H, F fps`, or `waiting for first frame` before the first. Frames are drawn scaled to fit with their aspect kept; a closed surface keeps its last frame, greyed, until **Dismiss**. See below. |
 | status bar | engine version and API, counts, storage from `GET /system/df` (images and volumes, and where the engine keeps its state and how full it is — `IndexedDB 2MB of 1GB (persistent)`, or `none` for an in-memory engine), how it keeps up: `live (GET /events)`; when the engine cuts the stream (a slow reader) or the connection breaks, the dashboard resynchronises and reconnects from the last event's time, backing off; an engine without the stream is polled every 2 s. |
 
 Wherever the wctr in use has no command for an action, the footer shows the
@@ -54,7 +55,7 @@ the command line by itself once wctr has it.
 ## Keyboard
 
 F6 moves between the navigation and the view's main widget; Tab / Shift-Tab
-between controls; arrows in lists and tables; Alt+1…5 switch views. **While
+between controls; arrows in lists and tables; Alt+1…6 switch views. **While
 the terminal has focus it gets every key it uses** (Ctrl-C/D/L/R/W/U, arrows,
 Tab, Alt+key, …) before any of these shortcuts; F6 leaves it. (Browsers
 reserve a few chords — Ctrl-W, Ctrl-T, Ctrl-N in Chrome — that no page can
@@ -83,6 +84,38 @@ worker serves the engine's API handler through the bridge
 (`bridge.ServeJS(handler, self)` and one line in its `onmessage`); the page
 sets `window.__wctrEngine` to that worker and runs `dashboard.wasm` on a
 `<canvas id="screen">`. `cmd/engine-worker` is the reference.
+
+#### GPU surfaces
+
+The engine's worker posts its GPU surfaces to the page (go-wasmcontainers/gpu,
+`webgpu.Browser{OnSurface}`), and the dashboard listens on
+`window.__wctrEngine`. No page code is needed. The messages:
+
+| Message | Meaning |
+|---|---|
+| `{t:"surface", op:"open", surface, container, pid, width, height}` | a pane opens; the size defaults to 640×480 and is clamped to 1920×1080 |
+| `{t:"surface", op:"resize", surface, width, height}` | the surface changed size |
+| `{t:"surface", op:"close", surface}` | the last frame stays, greyed, until **Dismiss** |
+| `{t:"frame", surface, seq, width, height, bitmap}` | one present(); the ImageBitmap is transferred to the page |
+
+Each frame becomes the page's to handle:
+- Only the newest frame per surface is kept. An older one still waiting is closed and acknowledged as dropped.
+- At the next scene frame, the waiting bitmap is drawn into the surface's backing canvas (an `OffscreenCanvas`), **closed at once**, and acknowledged with `{t:"frame-ack", surface, seq}`. The engine paces present() on these acks.
+- The pane is redrawn from the backing canvas through go-widgets/webcanvas `Layered` (v0.6.0), scaled to fit with its aspect kept, at device pixels.
+
+Robustness:
+- Frames are presented and acknowledged even while another view is shown, so the guest never waits on a hidden pane.
+- A frame for an unknown or closed surface, one out of order, or a message without a real `ImageBitmap` is dropped, closed and acknowledged.
+
+Bounds: at most 16 panes, `surface` must be a u32, `seq` an integer from 1 to 2^53, and sizes are clamped.
+
+The e2e checks this with 30 synthetic ImageBitmaps:
+- every frame is acknowledged exactly once, the malformed frame included;
+- the pane's centre pixel is the frame's colour, at a 4:3 aspect;
+- once the surface closes, the frame is shown greyed;
+- every bitmap ends closed: an `ImageBitmap`'s width reads 0 after `close()`.
+
+Input back to the guest is planned: `{t:"input", surface, kind, x, y, …}`, in surface pixels.
 
 #### Join class
 

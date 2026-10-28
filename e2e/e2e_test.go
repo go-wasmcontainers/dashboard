@@ -279,7 +279,11 @@ func TestJoinDialog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if js, _ := joins.([]any); len(js) != 1 || js[0] != `{"t":"join","code":"`+code+`","name":"ada"}` {
+	// Compared as fields: the message is built from a Go map, whose key
+	// order JSON.stringify then follows, at random.
+	var join map[string]string
+	if js, _ := joins.([]any); len(js) != 1 || json.Unmarshal([]byte(js[0].(string)), &join) != nil ||
+		len(join) != 3 || join["t"] != "join" || join["code"] != code || join["name"] != "ada" {
 		t.Errorf("joins posted = %v", joins)
 	}
 	where, err := page.Evaluate(`() => [location.href, JSON.stringify(localStorage), JSON.stringify(sessionStorage),
