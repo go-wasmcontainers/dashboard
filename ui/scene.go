@@ -58,6 +58,10 @@ type Scene struct {
 	detail                           *toolkit.Notebook
 	logs                             *toolkit.Terminal
 	inspect, env, mounts             *toolkit.ListBox
+	// the shell inside the shown container: the Open shell action and the
+	// detail's Shell tab
+	cShell    *toolkit.Button
+	shellTerm *toolkit.Terminal
 
 	// images view
 	iSearch                *toolkit.SearchEntry
@@ -207,6 +211,7 @@ func (s *Scene) build() {
 	s.cStop = button("Stop", func() { s.withContainer(c.Stop) })
 	s.cRestart = button("Restart", func() { s.withContainer(c.Restart) })
 	s.cRemove = button("Remove", func() { s.withContainer(c.Remove) })
+	s.cShell = button("Open shell", func() { s.withContainer(s.openShell) })
 	cols := make([]toolkit.TableColumn, vm.NumContainerCols)
 	for i, t := range vm.ContainerColumns {
 		cols[i] = toolkit.TableColumn{Title: t, Sortable: true}
@@ -246,7 +251,9 @@ func (s *Scene) build() {
 		return d.Title.Get()
 	}, inv, d.ID, d.Title)
 	s.dState = toolkit.NewLabel("")
-	bindLabel(s.dState, d.State.Get, inv, d.State)
+	// The header's right-hand side: the container's state, or, on the
+	// Shell tab, the shell's command line and how it goes. (Bound below,
+	// once the notebook exists.)
 	s.dFollow = toolkit.NewCheckButton("Follow", true)
 	bindObs(s.dFollow.Checked(), d.Follow, inv)
 	s.logs = toolkit.NewTerminal(80, 10, 5000)
@@ -274,6 +281,7 @@ func (s *Scene) build() {
 	s.detail.AddTab("Networks", s.dNets)
 	s.stats = newStatsPanel(d, inv)
 	s.detail.AddTab("Stats", s.stats)
+	s.buildShell()
 
 	// Images.
 	im := a.Images
@@ -501,6 +509,7 @@ func (s *Scene) updateButtons() {
 	s.cStop.Disabled().Set(!ok || !r.Running())
 	s.cRestart.Disabled().Set(!ok)
 	s.cRemove.Disabled().Set(!ok)
+	s.cShell.Disabled().Set(!ok || !r.Running())
 	_, img := s.app.Images.Find(s.app.Images.Selected.Get())
 	s.iRemove.Disabled().Set(!img)
 	s.vRemove.Disabled().Set(s.app.Volumes.Selected.Get() == "")
@@ -518,6 +527,8 @@ func (s *Scene) buttonLine(b *toolkit.Button) string {
 		return "Stop = " + c.StopLine(r)
 	case b == s.cRestart && ok:
 		return "Restart = " + c.RestartLine(r)
+	case b == s.cShell && ok:
+		return "Open shell = " + vm.Line("exec", "-it", r.Ref(), "sh")
 	case b == s.cRemove && ok:
 		return "Remove = " + c.RemoveLine(r)
 	}

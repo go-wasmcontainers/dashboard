@@ -335,9 +335,12 @@ type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }
 
+// mustReq is a request whose body declares a length, so it travels whole
+// (a body of unknown length is streamed instead; see stream_test.go).
 func mustReq(method string, body io.ReadCloser) *http.Request {
 	r, _ := http.NewRequest(method, "http://engine/x", nil)
 	r.Body = body
+	r.ContentLength = 1
 	return r
 }
 

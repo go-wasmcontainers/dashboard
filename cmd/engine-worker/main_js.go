@@ -22,6 +22,7 @@ import (
 	"github.com/go-wasmcontainers/engine/image"
 	"github.com/go-wasmcontainers/engine/rootfs"
 	"github.com/go-wasmcontainers/engine/runtime/browser"
+	"github.com/go-wasmcontainers/engine/wasi"
 
 	"github.com/go-wasmcontainers/dashboard/bridge"
 )
@@ -35,7 +36,10 @@ func main() {
 	base := href[:strings.LastIndexByte(href, '/')+1]
 	v := js.Global().Get("location").Get("search").String()
 
-	exec := browser.New(browser.Options{WorkerURL: base + "container-worker.js" + v, DefaultMemoryLimitBytes: 128 << 20})
+	// WASIX's process calls: a container's sh starts programs and pipelines
+	// (`wctr exec -it CONTAINER sh`, the dashboard's Open shell).
+	exec := browser.New(browser.Options{WorkerURL: base + "container-worker.js" + v, DefaultMemoryLimitBytes: 128 << 20,
+		HostModules: []wasi.HostModule{wasi.WASIX}})
 	lim := image.DefaultLimits
 	lim.MaxImageBytes = 128 << 20
 	lim.MaxBlobBytes = 64 << 20
@@ -43,7 +47,9 @@ func main() {
 		Backend:  image.NewMemoryBackend(256 << 20),
 		Limits:   lim,
 		Unpack:   rootfs.Limits{MaxBytes: 256 << 20, MaxFiles: 1 << 15, MaxRatio: 200, MaxPathLen: 4096, MaxDepth: 128},
-		Registry: image.RegistryOptions{Mirrors: map[string]string{"docker.io": strings.TrimSuffix(base, "/")}},
+		// docker.io and ghcr.io both resolve to this page's own /v2 mirror:
+		// "shell:0.1.0" and "ghcr.io/go-wasmcontainers/shell:0.1.0" alike.
+		Registry: image.RegistryOptions{Mirrors: map[string]string{"docker.io": strings.TrimSuffix(base, "/"), "ghcr.io": strings.TrimSuffix(base, "/")}},
 		Containers: container.Options{
 			Executor: exec, MemoryLimitBytes: 128 << 20, Timeout: 10 * time.Minute,
 			Quota: rootfs.Quota{MaxBytes: 32 << 20, MaxFiles: 1 << 13}, MaxLogBytes: 2 << 20, MaxContainers: 64,

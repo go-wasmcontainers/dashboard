@@ -21,6 +21,7 @@ import (
 	"github.com/go-wasmcontainers/engine/image"
 	"github.com/go-wasmcontainers/engine/rootfs"
 	"github.com/go-wasmcontainers/engine/runtime/wazero"
+	"github.com/go-wasmcontainers/engine/wasi"
 
 	"github.com/go-wasmcontainers/dashboard/bridge"
 	"github.com/go-wasmcontainers/dashboard/internal/images"
@@ -58,6 +59,33 @@ func Modules(tb testing.TB) map[string][]byte {
 	return modules
 }
 
+var (
+	shellOnce  sync.Once
+	shellCache map[string][]byte
+	errShell   error
+)
+
+// shellFiles mirrors the shell image once per process (from the user cache
+// when it holds the verified blobs; else from ghcr.io). A test that needs
+// the shell skips when it cannot be had (no network) -- see HasShell.
+func shellFiles(tb testing.TB) map[string][]byte {
+	shellOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		shellCache, errShell = images.Fetch(ctx, &http.Client{Timeout: 2 * time.Minute}, images.Shell, images.CacheDir())
+	})
+	return shellCache
+}
+
+// HasShell skips tb unless the shell image could be mirrored.
+func HasShell(tb testing.TB) {
+	tb.Helper()
+	shellFiles(tb)
+	if errShell != nil {
+		tb.Skipf("no shell image: %v", errShell)
+	}
+}
+
 // Engine is a running engine.
 type Engine struct {
 	// Handler is the engine's API.
@@ -81,6 +109,9 @@ func New(tb testing.TB, extra ...string) *Engine {
 		mods[n] = mods["hello"]
 	}
 	files := images.Registry(mods)
+	for n, b := range shellFiles(tb) {
+		files[n] = b
+	}
 	reg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, ok := files[r.URL.Path[1:]]
 		if !ok {
@@ -90,12 +121,14 @@ func New(tb testing.TB, extra ...string) *Engine {
 		w.Write(b)
 	}))
 	tb.Cleanup(reg.Close)
-	exec := wazero.New(wazero.Options{})
+	// The engine's own WASI with the WASIX process calls: what exec and the
+	// shell image's pipelines need (as `wctrd --wasi engine` and the browser).
+	exec := wazero.New(wazero.Options{EngineWASI: true, HostModules: []wasi.HostModule{wasi.WASIX}})
 	d, err := daemon.New(daemon.Options{
 		Backend:  image.NewMemoryBackend(256 << 20),
 		Limits:   image.DefaultLimits,
 		Unpack:   rootfs.Limits{MaxBytes: 64 << 20, MaxFiles: 1 << 12, MaxRatio: 200, MaxPathLen: 4096, MaxDepth: 64},
-		Registry: image.RegistryOptions{Mirrors: map[string]string{"docker.io": reg.URL}},
+		Registry: image.RegistryOptions{Mirrors: map[string]string{"docker.io": reg.URL, "ghcr.io": reg.URL}},
 		Containers: container.Options{
 			Executor: exec, MemoryLimitBytes: 64 << 20, Timeout: time.Minute,
 			Quota: rootfs.Quota{MaxBytes: 16 << 20, MaxFiles: 1 << 10}, MaxLogBytes: 1 << 20, MaxContainers: 300,

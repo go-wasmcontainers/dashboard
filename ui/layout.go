@@ -97,11 +97,11 @@ func (s *Scene) layout() {
 	line, field := u(22), u(26)
 	switch s.app.View.Get() {
 	case vm.ViewContainers:
-		row(bar, s.cSearch, 220, s.cAll, 140, s.cStart, 80, s.cStop, 80, s.cRestart, 90, s.cRemove, 90)
+		row(bar, s.cSearch, 220, s.cAll, 140, s.cStart, 80, s.cStop, 80, s.cRestart, 90, s.cRemove, 90, s.cShell, 110)
 		th := body.H * 45 / 100
 		s.cTable.SetBounds(rect{X: body.X, Y: body.Y, W: body.W, H: th})
 		dy := body.Y + th + g
-		row(rect{X: body.X, Y: dy, W: body.W, H: line}, s.dTitle, 0, s.dState, 260, s.dFollow, 90)
+		row(rect{X: body.X, Y: dy, W: body.W, H: line}, s.dTitle, 0, s.dState, 420, s.dFollow, 90)
 		s.detail.SetBounds(rect{X: body.X, Y: dy + line + g, W: body.W, H: body.Y + body.H - dy - line - g})
 	case vm.ViewImages:
 		row(bar, s.iSearch, 220, s.iPull, 80, s.iRun, 80, s.iRemove, 90, s.iForce, 80)
@@ -147,7 +147,7 @@ func (s *Scene) widgets() []toolkit.Widget {
 	out := []toolkit.Widget{s.nav}
 	switch s.app.View.Get() {
 	case vm.ViewContainers:
-		out = append(out, s.cSearch, s.cAll, s.cStart, s.cStop, s.cRestart, s.cRemove, s.cTable, s.dFollow, s.detail)
+		out = append(out, s.cSearch, s.cAll, s.cStart, s.cStop, s.cRestart, s.cRemove, s.cShell, s.cTable, s.dFollow, s.detail)
 	case vm.ViewImages:
 		out = append(out, s.iSearch, s.iPull, s.iRun, s.iRemove, s.iForce, s.iTable)
 		switch s.panel {
@@ -223,7 +223,7 @@ func (s *Scene) Draw(buf []byte) {
 		switch {
 		case w == toolkit.Widget(s.term):
 			th = termTheme(s.theme)
-		case w == toolkit.Widget(s.detail) && s.detail.Active().Get() == 0:
+		case w == toolkit.Widget(s.detail) && (s.detail.Active().Get() == 0 || s.detail.Active().Get() == shellTab):
 			th = termTheme(s.theme)
 		case w == toolkit.Widget(s.nav):
 			th = &navTheme
@@ -326,20 +326,22 @@ func (s *Scene) Scroll(x, y, dx, dy int) bool {
 
 // Char implements webcanvas.App.
 func (s *Scene) Char(c string) bool {
-	if s.focus == nil {
+	t := s.keyTarget()
+	if t == nil {
 		return false
 	}
-	s.focus.OnEvent(toolkit.Event{Kind: toolkit.EventChar, Code: c, Alt: s.mods.Alt})
+	t.OnEvent(toolkit.Event{Kind: toolkit.EventChar, Code: c, Alt: s.mods.Alt})
 	return true
 }
 
 // KeyDown implements webcanvas.App. The terminal, when it has focus, gets
 // every key it claims (Ctrl-C/D/L/R/W/U, arrows, Tab, ...) before any
 // global shortcut; the shortcuts are F6 (next region), Tab / Shift-Tab
-// (next / previous control) and Alt+1..5 (views).
+// (next / previous control) and Alt+1..6 (views). The shell's terminal,
+// on the detail's Shell tab, counts as focused when the detail is.
 func (s *Scene) KeyDown(key string) bool {
 	ev := toolkit.Event{Kind: toolkit.EventKeyDown, Code: key, Ctrl: s.mods.Ctrl, Shift: s.mods.Shift, Alt: s.mods.Alt, Meta: s.mods.Meta}
-	if t, ok := s.focus.(*toolkit.Terminal); ok && t.ClaimsKey(ev) {
+	if t, ok := s.keyTarget().(*toolkit.Terminal); ok && t.ClaimsKey(ev) {
 		t.OnEvent(ev)
 		return true
 	}
@@ -354,10 +356,11 @@ func (s *Scene) KeyDown(key string) bool {
 		s.app.View.Set(int(key[0] - '1'))
 		return true
 	}
-	if s.focus == nil {
+	t := s.keyTarget()
+	if t == nil {
 		return false
 	}
-	s.focus.OnEvent(ev)
+	t.OnEvent(ev)
 	return true
 }
 

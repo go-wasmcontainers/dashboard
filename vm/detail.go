@@ -182,6 +182,9 @@ func (d *Detail) Close() {
 		d.cancel = nil
 	}
 	d.gen++
+	if d.app.ExecShell.Container.Get() == d.ID.Get() {
+		d.app.ExecShell.Close() // the shell goes with the container it is in
+	}
 	d.ID.Set("")
 	d.Title.Set("")
 	d.State.Set("")

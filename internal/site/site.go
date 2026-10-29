@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/go-wasmcontainers/engine/runtime/browser"
 
@@ -119,6 +120,16 @@ func Build(ctx context.Context, o Options) ([]string, error) {
 		mods[p.Name] = b
 	}
 	files := images.Registry(mods)
+	// The shell image, mirrored by digest (`wctr run -d shell:0.1.0`, then
+	// Open shell): the page reaches nothing but its own origin.
+	fmt.Fprintf(o.Log, "mirroring %s@%s\n", images.Shell.Repo, images.Shell.Digest)
+	shell, err := images.Fetch(ctx, &http.Client{Timeout: 5 * time.Minute}, images.Shell, images.CacheDir())
+	if err != nil {
+		return nil, fmt.Errorf("mirroring %s: %w", images.Shell.Repo, err)
+	}
+	for n, b := range shell {
+		files[n] = b
+	}
 	names := make([]string, 0, len(files))
 	for n := range files {
 		names = append(names, n)

@@ -34,6 +34,9 @@ func ToJS(m Message) js.Value {
 	if m.Err != "" {
 		o.Set("err", m.Err)
 	}
+	if m.Stream {
+		o.Set("stream", true)
+	}
 	return o
 }
 
@@ -59,6 +62,7 @@ func FromJS(v js.Value) (m Message, ok bool) {
 	if s := v.Get("status"); s.Type() == js.TypeNumber {
 		m.Status = s.Int()
 	}
+	m.Stream = v.Get("stream").Type() == js.TypeBoolean && v.Get("stream").Bool()
 	if h := v.Get("header"); h.Type() == js.TypeObject {
 		keys := js.Global().Get("Object").Call("keys", h)
 		m.Header = map[string]string{}

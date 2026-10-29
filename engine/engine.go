@@ -73,6 +73,15 @@ type Engine interface {
 	NetworkCreate(ctx context.Context, o api.NetworkCreateRequest) (api.NetworkCreateResponse, error)
 	NetworkInspect(ctx context.Context, ref string) (json.RawMessage, error)
 	NetworkRemove(ctx context.Context, ref string) error
+	// ExecCreate prepares a process in a running container; ExecStart runs
+	// it, sending stdin (read until it ends) and returning its output
+	// stream (raw with a terminal); closing the stream hangs up, which
+	// kills the process. ExecResize sizes its terminal; ExecInspect says
+	// whether it runs and its exit code.
+	ExecCreate(ctx context.Context, container string, req api.ExecCreateRequest) (string, error)
+	ExecStart(ctx context.Context, id string, req api.ExecStartRequest, stdin io.Reader) (io.ReadCloser, error)
+	ExecResize(ctx context.Context, id string, height, width uint16) error
+	ExecInspect(ctx context.Context, id string) (api.ExecInspect, error)
 	// Events calls fn for each event since the given Unix time (0: from
 	// now) until ctx ends or the stream does (the engine cuts off a slow
 	// reader: reconnect with since and resynchronise).

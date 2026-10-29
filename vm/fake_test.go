@@ -44,6 +44,8 @@ type fake struct {
 	networks   []engine.Network
 	netErr     error
 	netInspect string
+	execs      map[string]*execSession
+	notYet     int // ExecCreate answers "is not running" this many times
 }
 
 func (f *fake) Networks(context.Context) ([]engine.Network, error) {
@@ -64,6 +66,96 @@ func (f *fake) NetworkInspect(_ context.Context, name string) (json.RawMessage, 
 
 func (f *fake) NetworkRemove(_ context.Context, name string) error {
 	return f.record("network rm " + name)
+}
+
+// execSession is the fake's exec: a "shell" that echoes each line it reads
+// as "> line\r\n" and exits with the status in "exit N".
+type execSession struct {
+	req     api.ExecCreateRequest
+	resized []string
+	code    *int
+}
+
+func (f *fake) ExecCreate(_ context.Context, container string, req api.ExecCreateRequest) (string, error) {
+	if err := f.record("exec create " + container + " " + strings.Join(req.Cmd, " ")); err != nil {
+		return "", err
+	}
+	refuse := false
+	f.set(func() {
+		if f.notYet > 0 {
+			f.notYet--
+			refuse = true
+		}
+	})
+	if refuse {
+		return "", &api.ErrDaemon{Status: 409, Message: "container is not running: " + container}
+	}
+	f.set(func() {
+		if f.execs == nil {
+			f.execs = map[string]*execSession{}
+		}
+		f.execs["e1"] = &execSession{req: req}
+	})
+	return "e1", nil
+}
+
+func (f *fake) ExecStart(_ context.Context, id string, _ api.ExecStartRequest, stdin io.Reader) (io.ReadCloser, error) {
+	if err := f.record("exec start " + id); err != nil {
+		return nil, err
+	}
+	s := get(f, func() *execSession { return f.execs[id] })
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		pw.Write([]byte("$ "))
+		var line []byte
+		one := make([]byte, 1)
+		for {
+			n, err := stdin.Read(one)
+			if n == 1 && one[0] != '\r' && one[0] != '\n' {
+				line = append(line, one[0])
+				continue
+			}
+			if n == 1 {
+				var code int
+				if _, e := fmt.Sscanf(string(line), "exit %d", &code); e == nil {
+					f.set(func() { s.code = &code })
+					return
+				}
+				if _, e := pw.Write([]byte("> " + string(line) + "\r\n$ ")); e != nil {
+					return // hung up
+				}
+				line = line[:0]
+			}
+			if err != nil {
+				zero := 0
+				f.set(func() { s.code = &zero })
+				return
+			}
+		}
+	}()
+	return pr, nil
+}
+
+func (f *fake) ExecResize(_ context.Context, id string, h, w uint16) error {
+	err := f.record(fmt.Sprintf("exec resize %s %dx%d", id, w, h))
+	f.set(func() {
+		if s := f.execs[id]; s != nil {
+			s.resized = append(s.resized, fmt.Sprintf("%dx%d", w, h))
+		}
+	})
+	return err
+}
+
+func (f *fake) ExecInspect(_ context.Context, id string) (api.ExecInspect, error) {
+	err := f.record("exec inspect " + id)
+	var out api.ExecInspect
+	f.set(func() {
+		if s := f.execs[id]; s != nil {
+			out = api.ExecInspect{ID: id, ExitCode: s.code, Running: s.code == nil}
+		}
+	})
+	return out, err
 }
 
 func newFake() *fake {
