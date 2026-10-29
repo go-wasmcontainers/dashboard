@@ -52,12 +52,14 @@ func (r *registry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 func image1(t *testing.T) (*registry, Pinned) {
 	t.Helper()
 	cfg, layer := []byte(`{"architecture":"wasm","os":"wasip1"}`), []byte("a tar.gz layer")
-	d := func(b []byte) image.Descriptor { return image.Descriptor{Digest: image.FromBytes(b), Size: int64(len(b))} }
+	d := func(b []byte) image.Descriptor {
+		return image.Descriptor{Digest: image.FromBytes(b), Size: int64(len(b))}
+	}
 	m := image.Manifest{SchemaVersion: 2, MediaType: image.MediaTypeOCIManifest, Config: d(cfg), Layers: []image.Descriptor{d(layer)}}
 	mb, _ := json.Marshal(m)
 	md := string(image.FromBytes(mb))
 	r := &registry{token: 200, tamper: map[string][]byte{}, files: map[string][]byte{
-		"v2/o/shell/manifests/" + md:                    mb,
+		"v2/o/shell/manifests/" + md:                     mb,
 		"v2/o/shell/blobs/" + string(m.Config.Digest):    cfg,
 		"v2/o/shell/blobs/" + string(m.Layers[0].Digest): layer,
 	}}

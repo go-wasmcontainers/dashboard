@@ -44,9 +44,9 @@ func main() {
 	lim.MaxImageBytes = 128 << 20
 	lim.MaxBlobBytes = 64 << 20
 	d, err := daemon.New(daemon.Options{
-		Backend:  image.NewMemoryBackend(256 << 20),
-		Limits:   lim,
-		Unpack:   rootfs.Limits{MaxBytes: 256 << 20, MaxFiles: 1 << 15, MaxRatio: 200, MaxPathLen: 4096, MaxDepth: 128},
+		Backend: image.NewMemoryBackend(256 << 20),
+		Limits:  lim,
+		Unpack:  rootfs.Limits{MaxBytes: 256 << 20, MaxFiles: 1 << 15, MaxRatio: 200, MaxPathLen: 4096, MaxDepth: 128},
 		// docker.io and ghcr.io both resolve to this page's own /v2 mirror:
 		// "shell:0.1.0" and "ghcr.io/go-wasmcontainers/shell:0.1.0" alike.
 		Registry: image.RegistryOptions{Mirrors: map[string]string{"docker.io": strings.TrimSuffix(base, "/"), "ghcr.io": strings.TrimSuffix(base, "/")}},
