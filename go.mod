@@ -6,7 +6,7 @@ require (
 	github.com/docker/go-units v0.5.0
 	github.com/go-fleettools/buildstamp v0.1.0
 	github.com/go-opentype/fonts v0.14.0
-	github.com/go-wasmcontainers/engine v0.11.0
+	github.com/go-wasmcontainers/engine v0.22.0
 	github.com/go-widgets/mvvm v0.15.0
 	github.com/go-widgets/painter v0.16.0
 	github.com/go-widgets/toolkit v0.345.2
@@ -23,7 +23,7 @@ require (
 	github.com/go-gfx/gfx v0.36.1 // indirect
 	github.com/go-icons/iconoir v0.3.0 // indirect
 	github.com/go-images/images v0.1.1-0.20261026203936-4ac989d310a1 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.5 // indirect
 	github.com/go-opentype/opentype v0.16.2-0.20261027113239-5e69589e9a5e // indirect
 	github.com/go-opentype/shape v0.7.0 // indirect
 	github.com/go-richdoc/richdoc v0.7.0 // indirect
@@ -37,4 +37,5 @@ require (
 	github.com/tetratelabs/wazero v1.12.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/term v0.47.0 // indirect
 )
