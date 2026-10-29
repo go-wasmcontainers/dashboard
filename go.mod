@@ -11,7 +11,7 @@ require (
 	github.com/go-widgets/painter v0.16.0
 	github.com/go-widgets/toolkit v0.345.2
 	github.com/go-widgets/webcanvas v0.6.0
-	github.com/playwright-community/playwright-go v0.5700.1
+	github.com/mxschmitt/playwright-go v0.6201.1
 	github.com/spf13/cobra v1.10.2
 )
 
@@ -23,7 +23,6 @@ require (
 	github.com/go-gfx/gfx v0.36.1 // indirect
 	github.com/go-icons/iconoir v0.3.0 // indirect
 	github.com/go-images/images v0.1.1-0.20261026203936-4ac989d310a1 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.5 // indirect
 	github.com/go-opentype/opentype v0.16.2-0.20261027113239-5e69589e9a5e // indirect
 	github.com/go-opentype/shape v0.7.0 // indirect
 	github.com/go-richdoc/richdoc v0.7.0 // indirect
