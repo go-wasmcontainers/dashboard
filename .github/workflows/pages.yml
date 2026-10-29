@@ -99,7 +99,7 @@ jobs:
           echo "PLAYWRIGHT_NODEJS_PATH=$(command -v node)" >> "$GITHUB_ENV"
           go run github.com/go-wasmcontainers/playground/cmd/site@v0.1.0 playwright-driver --dir "$RUNNER_TEMP/pwdriver"
           PLAYWRIGHT_DRIVER_PATH="$RUNNER_TEMP/pwdriver" PLAYWRIGHT_NODEJS_PATH="$(command -v node)" \
-            go run github.com/playwright-community/playwright-go/cmd/playwright install --with-deps ${{ matrix.browser }}
+            go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps ${{ matrix.browser }}
       - name: the live page, used in ${{ matrix.browser }}
         env:
           E2E_URL: https://go-wasmcontainers.github.io/dashboard/

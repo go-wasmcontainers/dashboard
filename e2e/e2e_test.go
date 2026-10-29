@@ -6,7 +6,7 @@
 //
 //	go test -tags e2e ./e2e/
 //
-// (browsers: go run github.com/playwright-community/playwright-go/cmd/playwright install chromium firefox).
+// (browsers: go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium firefox).
 // E2E_URL=<url> runs against a deployed page instead of a local build.
 package e2e
 
@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 
 	"github.com/go-wasmcontainers/dashboard/internal/site"
 	"github.com/go-wasmcontainers/dashboard/ui"
