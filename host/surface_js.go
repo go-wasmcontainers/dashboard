@@ -1,6 +1,6 @@
 //go:build js && wasm
 
-package main
+package host
 
 import (
 	"math"
@@ -122,8 +122,9 @@ func (b *backings) Forget(id uint32) {
 	}
 }
 
-// connectSurfaces routes the worker's surface messages to the panes.
-func connectSurfaces(worker js.Value, app *vm.App, q *mvvm.Queue, scene *ui.Scene) {
+// ConnectSurfaces routes the worker's surface messages to the panes (frames
+// drawn and acknowledged) and the panes' input to the worker.
+func ConnectSurfaces(worker js.Value, app *vm.App, q *mvvm.Queue, scene *ui.Scene) {
 	scene.SetSurfaceCanvas(newBackings())
 	ack := func(id uint32, seq uint64) {
 		worker.Call("postMessage", map[string]any{"t": "frame-ack", "surface": id, "seq": float64(seq)})
