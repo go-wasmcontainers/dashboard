@@ -22,16 +22,17 @@ type Pinned struct {
 	// there, Tag the tag it is published under, Digest the manifest's.
 	Registry, Repo, Tag, Digest string
 	// Names are the repositories it is served under in the static mirror
-	// ("library/shell", so that "shell:0.1.0" finds it; and its own path,
+	// ("library/shell", so that "shell:0.2.0" finds it; and its own path,
 	// for a mirror of its registry).
 	Names []string
 }
 
-// Shell is go-wasmcontainers/shell 0.1.0: /bin/sh and a base userland, the
-// image `wctr exec -it CONTAINER sh` needs.
+// Shell is go-wasmcontainers/shell 0.2.0: /bin/sh (with its line editor and
+// exit builtin) and a base userland, the image `wctr exec -it CONTAINER sh`
+// needs.
 var Shell = Pinned{
-	Registry: "https://ghcr.io", Repo: "go-wasmcontainers/shell", Tag: "0.1.0",
-	Digest: "sha256:79b185bfd505b523227396208976641e616723c3238c2a2edf18adcf15423b0e",
+	Registry: "https://ghcr.io", Repo: "go-wasmcontainers/shell", Tag: "0.2.0",
+	Digest: "sha256:32bb0127f92334ed27698f59ff5c3f7f439387026fc626fc37d0e0df35c505a7",
 	Names:  []string{"library/shell", "go-wasmcontainers/shell"},
 }
 

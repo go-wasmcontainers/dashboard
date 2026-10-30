@@ -70,7 +70,7 @@ func shellSession(t *testing.T, pw *playwright.Playwright, browser string) {
 	d.press("Alt+5")
 	d.until("terminal view", 5*time.Second, func(p ui.Probe) bool { return p.View == "Terminal" })
 	d.click("terminal")
-	d.typeKeys("wctr run -d --name box ghcr.io/go-wasmcontainers/shell:0.1.0 sleep 3600")
+	d.typeKeys("wctr run -d --name box ghcr.io/go-wasmcontainers/shell:0.2.0 sleep 3600")
 	d.press("Enter")
 	d.until("box running", 120*time.Second, func(p ui.Probe) bool {
 		return len(p.Containers) == 1 && p.Containers[0] == "box" && strings.Contains(p.Status[1], "1 running")
@@ -94,8 +94,11 @@ func shellSession(t *testing.T, pw *playwright.Playwright, browser string) {
 	}
 	p = d.until("44", 60*time.Second, func(p ui.Probe) bool { return regexp.MustCompile(`(?m)^\s*44\s*$`).MatchString(p.Shell) })
 	t.Logf("%s: shell screen:\n%s", browser, strings.TrimSpace(p.Shell))
-	// The end of input ends the shell; its exit status is shown.
-	d.press("Control+d")
+	// `exit 3` ends the shell; its exit status is shown.
+	d.typeKeys("exit 3")
+	d.press("Enter")
 	p = d.until("exit status", 30*time.Second, func(p ui.Probe) bool { return strings.HasPrefix(p.ShellStatus, "exited with status ") })
-	t.Logf("%s: %s", browser, p.ShellStatus)
+	if p.ShellStatus != "exited with status 3" {
+		t.Errorf("%s: status = %q, want exited with status 3", browser, p.ShellStatus)
+	}
 }

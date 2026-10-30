@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-widgets/webcanvas"
-
 	"github.com/go-wasmcontainers/dashboard/internal/testengine"
 	"github.com/go-wasmcontainers/dashboard/vm"
 )
@@ -32,7 +30,7 @@ func TestShellInContainer(t *testing.T) {
 	r.until("engine", func(p Probe) bool { return strings.HasPrefix(p.Status[0], "engine test") })
 	r.app.View.Set(vm.ViewTerminal)
 	r.click("terminal")
-	r.typeKeys("wctr run -d --name box ghcr.io/go-wasmcontainers/shell:0.1.0 sleep 3600\n")
+	r.typeKeys("wctr run -d --name box ghcr.io/go-wasmcontainers/shell:0.2.0 sleep 3600\n")
 	// The shell is opened as soon as box is listed as running, before
 	// `wctr run -d` has returned: the engine (v0.29.1) makes an exec wait
 	// for a started container's process, so there is no window to retry.
@@ -61,30 +59,19 @@ func TestShellInContainer(t *testing.T) {
 	if r.s.detail.Active().Get() != shellTab {
 		t.Error("an arrow key switched the detail's tab")
 	}
-	// The shell's exit status is shown. (go-wasmcontainers/shell 0.1.0 has
-	// no interactive `exit` builtin -- "sh:exit: not found" -- so the shell
-	// ends at end of input, Ctrl-D, with its last command's status: POSIX.)
-	// A command that fails, its status printed by the shell, then the end.
+	// A command typed while the previous one runs is not lost (engine
+	// v0.29.2 hands the typed-ahead keys over), and `exit 3` ends the shell
+	// with status 3, which the pane shows.
 	r.typeKeys("ls /nope; echo status=$?\n")
-	printed := regexp.MustCompile(`status=([0-9]+)`)
-	p = r.until("status printed", func(p Probe) bool { return printed.MatchString(p.Shell) })
-	code := printed.FindStringSubmatch(p.Shell)[1]
-	r.typeKeys("ls /nope\n")
-	r.s.Modifiers(webcanvas.Modifiers{Ctrl: true})
-	r.s.KeyDown("d")
-	r.s.Modifiers(webcanvas.Modifiers{})
+	r.until("status printed", func(p Probe) bool { return regexp.MustCompile(`status=[1-9][0-9]*`).MatchString(p.Shell) })
+	r.typeKeys("exit 3\n")
 	r.until("exit status", func(p Probe) bool { return strings.HasPrefix(p.ShellStatus, "exited with status ") })
 	r.frame()
-	st := r.s.Probe().ShellStatus
-	// The pane shows what the engine's exec inspect says (the exact mapping
-	// is vm's TestShell). This shell's status at end of input is not its
-	// last command's, which is the shell's own affair.
-	t.Logf("the shell printed status=%s; the pane says %q", code, st)
-	if !regexp.MustCompile(`^exited with status [0-9]+$`).MatchString(st) {
-		t.Errorf("status = %q", st)
+	if st := r.s.Probe().ShellStatus; st != "exited with status 3" {
+		t.Errorf("status = %q, want exited with status 3\nscreen:\n%s", st, r.s.Probe().Shell)
 	}
 	// The header says so on the Shell tab.
-	if s := r.s.dState.Text().Get(); s != "= wctr exec -it box sh · "+st {
+	if s := r.s.dState.Text().Get(); s != "= wctr exec -it box sh · exited with status 3" {
 		t.Errorf("header = %q", s)
 	}
 }

@@ -95,7 +95,7 @@ shown):
 - The raw output streams into the tab's terminal, which, like every terminal here, discards OSC/DCS/APC.
 - `/exec/{id}/resize` follows the tab's size.
 - When the shell ends, the tab shows `exited with status N`, from `GET /exec/{id}/json`.
-- An image without `/bin/sh` gets the engine's error. Try `wctr run -d --name box ghcr.io/go-wasmcontainers/shell:0.1.0 sleep 3600`. The demo page mirrors that image, pinned by digest, from its own origin.
+- An image without `/bin/sh` gets the engine's error. Try `wctr run -d --name box ghcr.io/go-wasmcontainers/shell:0.2.0 sleep 3600`; `exit 3` ends it and the pane shows the status. The demo page mirrors that image, pinned by digest, from its own origin.
 - On the Shell tab, keys go to the shell before any shortcut, and the arrows do not switch tabs. F6 leaves it.
 
 The engine reads an exec's stdin from the request body after its JSON
