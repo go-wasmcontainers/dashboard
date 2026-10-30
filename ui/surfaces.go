@@ -2,6 +2,7 @@ package ui
 
 import (
 	"math"
+	"unicode/utf8"
 
 	"github.com/go-widgets/painter"
 	"github.com/go-widgets/toolkit"
@@ -69,8 +70,17 @@ func (s *Scene) syncPanes() {
 		p.closed, p.shown = r.Closed, r.Shown
 		s.panes = append(s.panes, p)
 	}
-	for id := range old {
-		if !sf.Has(id) && s.surfaceCanvas != nil {
+	for id, p := range old {
+		if sf.Has(id) {
+			continue
+		}
+		if p == s.paneFocus {
+			s.paneFocus = nil
+		}
+		if p == s.paneDrag {
+			s.paneDrag = nil
+		}
+		if s.surfaceCanvas != nil {
 			s.surfaceCanvas.Forget(id)
 		}
 	}
@@ -127,9 +137,15 @@ func (s *Scene) surfaceLabels() []toolkit.Widget {
 }
 
 // drawSurfaceGrounds paints each pane's frame area, with its wait text
-// before the first frame; the frame itself is a layer drawn over it.
+// before the first frame; the frame itself is a layer drawn over it. The
+// pane that has the focus (its guest gets the keys) is framed in the accent.
 func (s *Scene) drawSurfaceGrounds(p painter.Painter) {
 	for _, pn := range s.panes {
+		if pn == s.paneFocus {
+			b := pn.body
+			w := max(u(2), 1)
+			p.FillRect(rect{X: b.X - w, Y: b.Y - w, W: b.W + 2*w, H: b.H + 2*w}, s.theme.Accent)
+		}
 		p.FillRect(pn.body, toolkit.RGB(0x10, 0x12, 0x16))
 		if !pn.shown {
 			toolkit.DrawText(p, pn.body.X+u(gap), pn.body.Y+u(gap), "waiting for first frame", toolkit.RGB(0xC8, 0xCC, 0xD2))
@@ -137,14 +153,81 @@ func (s *Scene) drawSurfaceGrounds(p painter.Painter) {
 	}
 }
 
-// fit is the largest rectangle of aspect w:h centred in r.
+// fit is the largest rectangle of aspect w:h centred in r (vm.Fit).
 func fit(r rect, w, h int) rect {
-	if w <= 0 || h <= 0 || r.W <= 0 || r.H <= 0 {
-		return rect{}
+	b := vm.Fit(vm.Box{X: r.X, Y: r.Y, W: r.W, H: r.H}, w, h)
+	return rect{X: b.X, Y: b.Y, W: b.W, H: b.H}
+}
+
+// image is where pane p's frame is drawn (and its input read).
+func (s *Scene) image(p *pane) vm.Box {
+	r, _ := s.app.Surfaces.Find(p.id)
+	d := fit(p.body, r.W, r.H)
+	return vm.Box{X: d.X, Y: d.Y, W: d.W, H: d.H}
+}
+
+// paneAt is the pane whose frame area holds (x, y), in the Surfaces view.
+func (s *Scene) paneAt(x, y int) *pane {
+	if s.app.View.Get() != vm.ViewSurfaces {
+		return nil
 	}
-	scale := math.Min(float64(r.W)/float64(w), float64(r.H)/float64(h))
-	fw, fh := max(int(float64(w)*scale), 1), max(int(float64(h)*scale), 1)
-	return rect{X: r.X + (r.W-fw)/2, Y: r.Y + (r.H-fh)/2, W: fw, H: fh}
+	for _, p := range s.panes {
+		if p.body.Contains(x, y) {
+			return p
+		}
+	}
+	return nil
+}
+
+// pointer sends a pointer event at (x, y) to the pane under it, if any;
+// pointer-down also gives that pane the focus (and takes it from the
+// widgets). It reports whether the point was a pane's.
+func (s *Scene) pointer(kind string, x, y int) bool {
+	p := s.paneAt(x, y)
+	if p == nil {
+		return false
+	}
+	if kind == vm.PointerDown {
+		s.setFocus(nil)
+		s.paneFocus = p
+		s.invalidate()
+	}
+	if !p.closed {
+		s.app.Surfaces.Pointer(p.id, kind, s.image(p), x, y)
+	}
+	return true
+}
+
+// key sends a key event to the focused pane's guest.
+func (s *Scene) key(kind, text string) {
+	p := s.paneFocus
+	if p == nil {
+		return
+	}
+	s.app.Surfaces.Key(p.id, kind, s.code, text, vm.KeyModifiers{Alt: s.mods.Alt, Ctrl: s.mods.Ctrl, Meta: s.mods.Meta, Shift: s.mods.Shift})
+}
+
+// KeyCode implements webcanvas.KeyCodeAware: the physical key of the
+// keyboard event about to be delivered.
+func (s *Scene) KeyCode(code string) { s.code = code }
+
+// KeyUp implements webcanvas.KeyUpper: a release goes to the focused
+// pane's guest, with the text the key produces when it is one character.
+func (s *Scene) KeyUp(key string) bool {
+	if s.paneFocus == nil {
+		return false
+	}
+	s.key(vm.KeyUp, oneChar(key))
+	return true
+}
+
+// oneChar is key when it is one character (KeyboardEvent.key for a key
+// that produces text), else "" (a named key: "Enter", "ArrowUp").
+func oneChar(key string) string {
+	if utf8.RuneCountInString(key) == 1 {
+		return key
+	}
+	return ""
 }
 
 // Layers implements webcanvas.Layered. Every frame waiting is presented
@@ -155,6 +238,7 @@ func fit(r rect, w, h int) rect {
 // greyed when the surface is closed.
 func (s *Scene) Layers() []webcanvas.Layer {
 	sf := s.app.Surfaces
+	sf.FlushMoves() // at most one pointer move per surface per frame
 	for _, id := range sf.IDs() {
 		f, seq, w, h, ok := sf.Take(id)
 		if !ok {

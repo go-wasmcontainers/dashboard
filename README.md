@@ -136,7 +136,17 @@ The e2e checks this with 30 synthetic ImageBitmaps:
 - once the surface closes, the frame is shown greyed;
 - every bitmap ends closed: an `ImageBitmap`'s width reads 0 after `close()`.
 
-Input back to the guest is planned: `{t:"input", surface, kind, x, y, …}`, in surface pixels.
+**Input to the guest** (go-wasmcontainers/gpu v0.6.0, `webgpu.SurfaceInput`):
+the pane forwards pointer and key events to the engine worker as
+`{t:"input", surface, kind, …}`.
+
+- **Pointers** (`pointer-down`, `pointer-up`, `pointer-move`) carry `x, y` in surface pixels. A canvas pixel's centre is scaled from the frame's letterboxed box, and an event outside the frame is dropped (`vm.ToSurface`).
+- **Keys** (`key-down`, `key-up`) carry `code`, the `KeyboardEvent.code` such as "KeyA"; `text`, the key when it is one character, at most 64 bytes; and `alt`, `ctrl`, `meta`, `shift`.
+- **Focus:** a press on a pane's frame gives that pane the focus, and its frame is drawn in the accent colour. Only the focused pane sends keys. Like a terminal, it takes every key except F6, which leaves it; a click on a widget takes the focus back.
+- **Rate:** pointer moves are coalesced to one per surface per frame.
+- A closed surface takes no input.
+
+The code and the releases come from go-widgets/webcanvas `KeyCodeAware` and `KeyUpper`.
 
 #### Join class
 

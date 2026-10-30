@@ -44,6 +44,7 @@ type surface struct {
 	pw, ph     int
 	lastSeq    uint64
 	times      []time.Time
+	move       *SurfaceInput // the pointer move waiting for this frame
 }
 
 // Surfaces holds the GPU surfaces the engine reports: the panes, and the
@@ -52,9 +53,10 @@ type surface struct {
 // for a surface that is unknown or closed, or out of order. The engine
 // paces its guest on those acknowledgements, so none may be lost.
 type Surfaces struct {
-	app  *App
-	ack  func(surface uint32, seq uint64)
-	byID map[uint32]*surface
+	app   *App
+	ack   func(surface uint32, seq uint64)
+	input func(SurfaceInput)
+	byID  map[uint32]*surface
 	// Rows are the panes, by surface ID.
 	Rows *mvvm.ObservableList[SurfaceRow]
 }

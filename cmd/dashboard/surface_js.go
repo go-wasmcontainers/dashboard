@@ -129,6 +129,19 @@ func connectSurfaces(worker js.Value, app *vm.App, q *mvvm.Queue, scene *ui.Scen
 		worker.Call("postMessage", map[string]any{"t": "frame-ack", "surface": id, "seq": float64(seq)})
 	}
 	app.Surfaces.SetAck(ack)
+	// Input for a surface's guest (go-wasmcontainers/gpu, webgpu.SurfaceInput):
+	// pointers in surface pixels, keys with KeyboardEvent.code and their text.
+	app.Surfaces.SetInput(func(ev vm.SurfaceInput) {
+		m := map[string]any{"t": "input", "surface": ev.Surface, "kind": ev.Kind}
+		switch ev.Kind {
+		case vm.KeyDown, vm.KeyUp:
+			m["code"], m["text"] = ev.Code, ev.Text
+			m["alt"], m["ctrl"], m["meta"], m["shift"] = ev.Alt, ev.Ctrl, ev.Meta, ev.Shift
+		default:
+			m["x"], m["y"] = ev.X, ev.Y
+		}
+		worker.Call("postMessage", m)
+	})
 	imageBitmap := js.Global().Get("ImageBitmap")
 	worker.Call("addEventListener", "message", js.FuncOf(func(_ js.Value, a []js.Value) any {
 		m := a[0].Get("data")

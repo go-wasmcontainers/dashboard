@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -11,16 +12,21 @@ import (
 	"github.com/mxschmitt/playwright-go"
 
 	"github.com/go-wasmcontainers/dashboard/ui"
+	"github.com/go-wasmcontainers/dashboard/vm"
 )
 
 // surfaceStub records what the page posts to the engine worker as
-// {t:"frame-ack"}, and every ImageBitmap the test makes.
+// {t:"frame-ack"} and {t:"input"}, and every ImageBitmap the test makes.
 const surfaceStub = `(() => {
   window.__acks = [];
+  window.__inputs = [];
   window.__bitmaps = [];
   const post = Worker.prototype.postMessage;
   Worker.prototype.postMessage = function (m, ...rest) {
     if (m && m.t === "frame-ack") window.__acks.push(m.surface + ":" + m.seq);
+    if (m && m.t === "input") window.__inputs.push(m.kind === "key-down" || m.kind === "key-up"
+      ? m.surface + " " + m.kind + " " + m.code + " " + JSON.stringify(m.text) + " shift=" + m.shift
+      : m.surface + " " + m.kind + " " + m.x.toFixed(2) + "," + m.y.toFixed(2));
     return post.call(this, m, ...rest);
   };
 })()`
@@ -137,6 +143,36 @@ func TestSurfaceFrames(t *testing.T) {
 	}
 	if open.(int) != 0 {
 		t.Errorf("%v of %d ImageBitmaps were never closed", open, n)
+	}
+
+	// Input: a real click on the frame's centre and Shift+A typed reach the
+	// engine worker as {t:"input"}, in surface pixels, with the key's code.
+	cx, cy := box.X+box.W/2, box.Y+box.H/2
+	if err := page.Mouse().Click(float64(cx), float64(cy)); err != nil {
+		t.Fatal(err)
+	}
+	d.press("Shift+KeyA")
+	x, y, _ := vm.ToSurface(vm.Box{X: box.X, Y: box.Y, W: box.W, H: box.H}, 64, 48, cx, cy)
+	at := fmt.Sprintf("%.2f,%.2f", x, y)
+	// Shift is a key too: down before A, up after it.
+	wantIn := []string{"7 pointer-down " + at, "7 pointer-up " + at, `7 key-down ShiftLeft "" shift=true`,
+		`7 key-down KeyA "A" shift=true`, `7 key-up KeyA "A" shift=true`, `7 key-up ShiftLeft "" shift=false`}
+	inputs := func() []string {
+		v, err := page.Evaluate(`() => window.__inputs`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, a := range v.([]any) {
+			if s := a.(string); !strings.Contains(s, "pointer-move") {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	d.until("input sent", 10*time.Second, func(ui.Probe) bool { return len(inputs()) >= len(wantIn) })
+	if got := inputs(); strings.Join(got, "\n") != strings.Join(wantIn, "\n") {
+		t.Errorf("inputs:\n%s\nwant first:\n%s", strings.Join(got, "\n"), strings.Join(wantIn, "\n"))
 	}
 
 	// Close: the last frame stays, greyed, and a Dismiss appears.

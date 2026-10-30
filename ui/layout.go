@@ -265,12 +265,20 @@ func (s *Scene) setFocus(w toolkit.Widget) {
 	if f, ok := w.(toolkit.Focusable); ok {
 		f.SetFocused(true)
 	}
+	if w != nil {
+		s.paneFocus = nil // a widget takes the keys from a surface's guest
+	}
 }
 
-// Click implements webcanvas.App.
+// Click implements webcanvas.App. A press on a surface pane's frame area
+// gives that pane the focus and goes to its guest (pointer-down).
 func (s *Scene) Click(x, y int) bool {
 	w := s.hit(x, y)
 	if w == nil {
+		if s.pointer(vm.PointerDown, x, y) {
+			s.paneDrag = s.paneAt(x, y)
+			return true
+		}
 		return false
 	}
 	s.setFocus(w)
@@ -280,8 +288,16 @@ func (s *Scene) Click(x, y int) bool {
 }
 
 // Move implements webcanvas.App: a drag while a button is held, else hover
-// (which shows a hovered action's command line).
+// (which shows a hovered action's command line). Over a surface pane the
+// move goes to its guest, coalesced to one per frame: it asks for a frame
+// (RepaintWith coalesces) whose Layers sends the last one.
 func (s *Scene) Move(x, y int) bool {
+	if s.drag == nil && s.pointer(vm.PointerMove, x, y) {
+		if s.repaint != nil {
+			s.repaint()
+		}
+		return false
+	}
 	if s.drag != nil {
 		s.drag.OnEvent(local(s.event(toolkit.EventMouseDrag, x, y), s.drag))
 		return true
@@ -299,8 +315,14 @@ func (s *Scene) Move(x, y int) bool {
 	return true
 }
 
-// Release implements webcanvas.App.
+// Release implements webcanvas.App. A press that began on a surface pane
+// ends there (pointer-up, dropped outside the frame).
 func (s *Scene) Release(x, y int) bool {
+	if s.paneDrag != nil {
+		s.paneDrag = nil
+		s.pointer(vm.PointerUp, x, y)
+		return true
+	}
 	if s.drag == nil {
 		return false
 	}
@@ -326,6 +348,10 @@ func (s *Scene) Scroll(x, y, dx, dy int) bool {
 
 // Char implements webcanvas.App.
 func (s *Scene) Char(c string) bool {
+	if s.paneFocus != nil {
+		s.key(vm.KeyDown, c)
+		return true
+	}
 	t := s.keyTarget()
 	if t == nil {
 		return false
@@ -338,9 +364,21 @@ func (s *Scene) Char(c string) bool {
 // every key it claims (Ctrl-C/D/L/R/W/U, arrows, Tab, ...) before any
 // global shortcut; the shortcuts are F6 (next region), Tab / Shift-Tab
 // (next / previous control) and Alt+1..6 (views). The shell's terminal,
-// on the detail's Shell tab, counts as focused when the detail is.
+// on the detail's Shell tab, counts as focused when the detail is. A
+// surface pane with the focus is like a terminal: its guest gets every key
+// but F6, which leaves it.
 func (s *Scene) KeyDown(key string) bool {
 	ev := toolkit.Event{Kind: toolkit.EventKeyDown, Code: key, Ctrl: s.mods.Ctrl, Shift: s.mods.Shift, Alt: s.mods.Alt, Meta: s.mods.Meta}
+	if s.paneFocus != nil {
+		if key == "F6" {
+			s.paneFocus = nil
+			s.cycleFocus(!ev.Shift, true)
+			s.invalidate()
+			return true
+		}
+		s.key(vm.KeyDown, oneChar(key))
+		return true
+	}
 	if t, ok := s.keyTarget().(*toolkit.Terminal); ok && t.ClaimsKey(ev) {
 		t.OnEvent(ev)
 		return true
