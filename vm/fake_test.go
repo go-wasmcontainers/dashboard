@@ -45,7 +45,6 @@ type fake struct {
 	netErr     error
 	netInspect string
 	execs      map[string]*execSession
-	notYet     int // ExecCreate answers "is not running" this many times
 }
 
 func (f *fake) Networks(context.Context) ([]engine.Network, error) {
@@ -79,16 +78,6 @@ type execSession struct {
 func (f *fake) ExecCreate(_ context.Context, container string, req api.ExecCreateRequest) (string, error) {
 	if err := f.record("exec create " + container + " " + strings.Join(req.Cmd, " ")); err != nil {
 		return "", err
-	}
-	refuse := false
-	f.set(func() {
-		if f.notYet > 0 {
-			f.notYet--
-			refuse = true
-		}
-	})
-	if refuse {
-		return "", &api.ErrDaemon{Status: 409, Message: "container is not running: " + container}
 	}
 	f.set(func() {
 		if f.execs == nil {

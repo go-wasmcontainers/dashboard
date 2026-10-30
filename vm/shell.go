@@ -4,24 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
-	"time"
 
 	"github.com/go-wasmcontainers/engine/api"
 	"github.com/go-widgets/mvvm"
 )
 
-// ShellCmd is what Open runs in the container.
+// ShellCmd is what Open runs in the container. (An exec into a container
+// that has started but has no process yet waits for it in the engine,
+// v0.29.1, so there is nothing to retry here.)
 var ShellCmd = []string{"/bin/sh"}
-
-// How often, and how far apart, an exec refused with "is not running" is
-// tried again: the engine lists a container as running a moment before it
-// takes an exec into it (see run).
-var (
-	ExecRetries    = 10
-	ExecRetryDelay = 300 * time.Millisecond
-)
 
 // Shell bounds: input chunks queued for the shell, and the output read at
 // a time.
@@ -128,16 +120,6 @@ func (sh *ExecShell) run(ctx context.Context, gen int, s *session, container str
 	}
 	req := api.ExecCreateRequest{Cmd: ShellCmd, Tty: true, AttachStdin: true, AttachStdout: true, AttachStderr: true, ConsoleSize: size}
 	id, err := sh.app.eng.ExecCreate(ctx, container, req)
-	// Right after a start, an exec is refused with "is not running" for a
-	// moment: try again, a bounded number of times, unless hung up.
-	for try := 0; err != nil && strings.Contains(err.Error(), "is not running") && try < ExecRetries; try++ {
-		select {
-		case <-ctx.Done():
-			try = ExecRetries
-		case <-time.After(ExecRetryDelay):
-			id, err = sh.app.eng.ExecCreate(ctx, container, req)
-		}
-	}
 	if err != nil {
 		fail(err)
 		s.end()

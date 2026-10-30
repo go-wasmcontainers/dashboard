@@ -33,13 +33,11 @@ func TestShellInContainer(t *testing.T) {
 	r.app.View.Set(vm.ViewTerminal)
 	r.click("terminal")
 	r.typeKeys("wctr run -d --name box ghcr.io/go-wasmcontainers/shell:0.1.0 sleep 3600\n")
-	// Wait for `wctr run -d` itself to return (the container's ID, then the
-	// prompt): the engine lists the container as running a moment before
-	// it takes an exec, a window the dashboard retries over but that a
-	// loaded CI runner (-race) can stretch past the retries.
-	started := regexp.MustCompile(`(?m)^[0-9a-f]{64}\s*\n\$`)
-	r.until("box started", func(p Probe) bool {
-		return started.MatchString(p.Terminal) && len(p.Containers) == 1 && strings.Contains(p.Status[1], "1 running")
+	// The shell is opened as soon as box is listed as running, before
+	// `wctr run -d` has returned: the engine (v0.29.1) makes an exec wait
+	// for a started container's process, so there is no window to retry.
+	r.until("box running", func(p Probe) bool {
+		return len(p.Containers) == 1 && p.Containers[0] == "box" && strings.Contains(p.Status[1], "1 running")
 	})
 	r.app.View.Set(vm.ViewContainers)
 	r.clickRow(r.s.cTable, 0)

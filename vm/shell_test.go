@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-wasmcontainers/engine/api"
 )
@@ -76,32 +75,6 @@ func TestShell(t *testing.T) {
 	h.until("running 3", func() bool { return sh.Running.Get() })
 	sh.Input("exit 0\r")
 	h.until("ended", func() bool { return sh.Status.Get() == "ended" })
-
-	// Right after a start: refused twice, then taken.
-	old := ExecRetryDelay
-	ExecRetryDelay = time.Millisecond
-	defer func() { ExecRetryDelay = old }()
-	h.f.setErr("exec inspect e1", nil)
-	h.f.set(func() { h.f.notYet = 2 })
-	sh.Close()
-	sh.Open("c1", "web")
-	h.until("taken after retries", func() bool { return sh.Running.Get() })
-	sh.Input("exit 0\r")
-	h.until("done", func() bool { return !sh.Running.Get() })
-	// Refused every time: the engine's message after the last try.
-	h.f.set(func() { h.f.notYet = ExecRetries + 1 })
-	sh.Open("c1", "web")
-	h.until("given up", func() bool {
-		return strings.HasPrefix(sh.Status.Get(), "exec: Error response from daemon: container is not running")
-	})
-	// Hung up while trying again: no more tries.
-	ExecRetryDelay = time.Hour
-	h.f.set(func() { h.f.notYet = 1 })
-	sh.Open("c1", "web")
-	sh.Close()
-	h.until("hung up while waiting", func() bool { return strings.HasPrefix(sh.Status.Get(), "exec: ") })
-	ExecRetryDelay = time.Millisecond
-	h.f.set(func() { h.f.notYet = 0 })
 
 	// A full queue drops input, and says so.
 	h.f.setErr("exec inspect e1", nil)

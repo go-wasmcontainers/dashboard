@@ -24,8 +24,8 @@ demo with its own engine in a Web Worker and three demo images (`hello`,
 `clock`, `fail`). In the Terminal view: `wctr run -d --name web clock`, then
 watch it in Containers.
 
-> **Status: M1, on engine v0.11.0.** Containers (with stats and networks),
-> images, volumes, networks (and joining a class), GPU surfaces, status bar and terminal, kept current by the engine's event stream. Tested
+> **Status: M1, on engine v0.29.1.** Containers (with stats, networks and a
+> shell inside them), images, volumes, networks (and joining a class), GPU surfaces, status bar and terminal, kept current by the engine's event stream. Tested
 > with Playwright in Chromium (isolation headers and the service worker
 > GitHub Pages needs); the Pages workflow also drives the live page in
 > Chromium and Firefox.
@@ -34,7 +34,7 @@ watch it in Containers.
 
 | View | |
 |---|---|
-| **Containers** | name, image, state (coloured: running, exited 0, exited ≠ 0, created), status, created, ID; filter running/all, search, sort by any column; Start, Stop, Restart, Remove on the selected container (the engine's `/start`, `/stop`, `/restart` and `DELETE`: `wctr start`, `wctr stop`, `wctr restart`, `wctr rm`). Detail pane: **Logs** (follow on/off; ANSI colours rendered, stderr in red), **Inspect** (the inspect document as an indented tree, in its own key order), **Environment**, **Mounts** (`volume data -> /data (rw)`), **Stats** (`wctr stats`: a memory gauge against the container's limit, a sparkline of the last 60 readings, bytes written, layer and log size, pids; CPU shows `--` with the engine's reason, since a wasm guest's CPU is not measured and 0% would read as idle). |
+| **Containers** | name, image, state (coloured: running, exited 0, exited ≠ 0, created), status, created, ID; filter running/all, search, sort by any column; Start, Stop, Restart, Remove on the selected container (the engine's `/start`, `/stop`, `/restart` and `DELETE`: `wctr start`, `wctr stop`, `wctr restart`, `wctr rm`). Detail pane: **Logs** (follow on/off; ANSI colours rendered, stderr in red), **Inspect** (the inspect document as an indented tree, in its own key order), **Environment**, **Mounts** (`volume data -> /data (rw)`), **Stats** (`wctr stats`: a memory gauge against the container's limit, a sparkline of the last 60 readings, bytes written, layer and log size, pids; CPU shows `--` with the engine's reason, since a wasm guest's CPU is not measured and 0% would read as idle), **Shell** (see below). |
 | **Images** | repository:tag, image ID, digest, size, created; **Pull…** (progress lines), **Run…** (image, name, command, environment, entrypoint, working dir, memory, volumes `-v NAME:/path[:ro]`, `--rm`, mirroring `wctr run -d`, with the command line shown live as you type), Remove (Force). |
 | **Volumes** | name, driver, mountpoint, created, size, how many containers use it; Create (`wctr volume create NAME`), the selected volume's inspect tree, Remove (Force: `wctr volume rm -f NAME`), Prune (All unused: `wctr volume prune -a -f`), with what it reclaimed. An engine older than v0.8.0 gets a message instead — never invented rows. |
 | **Networks** | name, ID, driver, subnet, and the containers attached with their addresses (`web 10.42.0.2/24`); Create (`wctr network create NAME`), the selected network's inspect tree (`wctr network inspect NAME`), Remove (`wctr network rm NAME`). A container's detail has a **Networks** tab: each network it is on, its address and DNS names. On a page that can join a class (the playground), the view also offers **Join class…**; see below. An engine older than v0.11.0 gets a message instead. |
@@ -84,6 +84,27 @@ worker serves the engine's API handler through the bridge
 (`bridge.ServeJS(handler, self)` and one line in its `onmessage`); the page
 sets `window.__wctrEngine` to that worker and runs `dashboard.wasm` on a
 `<canvas id="screen">`. `cmd/engine-worker` is the reference.
+
+#### A shell inside a container
+
+**Open shell** (the containers toolbar, on a running container) opens the
+detail's **Shell** tab. It is `wctr exec -it CONTAINER sh` (the line is
+shown):
+- `POST /containers/{id}/exec` runs `/bin/sh` with a terminal at the tab's size.
+- `/exec/{id}/start` sends the keys as raw bytes, and the engine does the line editing and echo.
+- The raw output streams into the tab's terminal, which, like every terminal here, discards OSC/DCS/APC.
+- `/exec/{id}/resize` follows the tab's size.
+- When the shell ends, the tab shows `exited with status N`, from `GET /exec/{id}/json`.
+- An image without `/bin/sh` gets the engine's error. Try `wctr run -d --name box ghcr.io/go-wasmcontainers/shell:0.1.0 sleep 3600`. The demo page mirrors that image, pinned by digest, from its own origin.
+- On the Shell tab, keys go to the shell before any shortcut, and the arrows do not switch tabs. F6 leaves it.
+
+The engine reads an exec's stdin from the request body after its JSON
+start object, a documented divergence from Docker's hijacked connection.
+So the bridge streams request bodies of unknown length: `http.req` with
+`stream:true`, then `http.body` chunks, then `http.eof`. A page that runs
+the dashboard against its own engine worker needs the worker's
+`bridge.ServeJS` from this version, and the executor needs `wasi.WASIX`
+among its host modules (`cmd/engine-worker` is the reference).
 
 #### GPU surfaces
 
