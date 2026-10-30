@@ -5,13 +5,21 @@
 // engine's API handler through this bridge. Responses stream, so the log
 // follow, wait and pull endpoints work as over a socket.
 //
-// The protocol is five message types, all carrying the request's id:
+// The protocol is seven message types, all carrying the request's id:
 //
-//	page -> worker   http.req     {method, url, header, data}
+//	page -> worker   http.req     {method, url, header, data, stream}
+//	page -> worker   http.body    {data}   (a streamed request body)
+//	page -> worker   http.eof     {}       (its end)
 //	page -> worker   http.cancel  {}
 //	worker -> page   http.head    {status, header}
 //	worker -> page   http.data    {data}
 //	worker -> page   http.end     {err}
+//
+// A request body of known length (every JSON body) travels whole in
+// http.req. One of unknown length -- a stdin, as the engine's exec start
+// reads after its JSON object -- is streamed: http.req says stream, then
+// http.body chunks follow as the client produces them, then http.eof, so
+// an interactive process gets its input while its output streams back.
 //
 // The core here is plain Go over a post function, natively tested; the
 // JavaScript glue (bridge_js.go) only converts Message to and from a JS
@@ -38,6 +46,8 @@ import (
 // Message types.
 const (
 	TypeRequest = "http.req"
+	TypeBody    = "http.body"
+	TypeEOF     = "http.eof"
 	TypeCancel  = "http.cancel"
 	TypeHead    = "http.head"
 	TypeData    = "http.data"
@@ -49,8 +59,10 @@ const (
 	MaxBody      = 1 << 20  // a request body
 	MaxHeader    = 32       // header fields of a request or response
 	MaxInFlight  = 64       // concurrent requests a server runs
-	MaxBuffered  = 16 << 20 // response bytes a client holds unread
+	MaxBuffered  = 16 << 20 // response bytes a client holds unread (and request bytes a server does)
 	maxHeaderLen = 4096
+	// chunkSize is the most a streamed request body sends per message.
+	chunkSize = 32 << 10
 )
 
 // Message is one message of the protocol.
@@ -63,6 +75,8 @@ type Message struct {
 	Data   []byte
 	Status int
 	Err    string
+	// Stream: the request body follows as http.body messages, then http.eof.
+	Stream bool
 }
 
 // IsBridge reports whether a message type belongs to the protocol.
@@ -75,12 +89,13 @@ type Server struct {
 
 	mu     sync.Mutex
 	reqs   map[int]context.CancelFunc
+	bodies map[int]*body // the streamed request bodies
 	closed bool
 }
 
 // NewServer serves h; post sends a message back to the client.
 func NewServer(h http.Handler, post func(Message)) *Server {
-	return &Server{h: h, post: post, reqs: map[int]context.CancelFunc{}}
+	return &Server{h: h, post: post, reqs: map[int]context.CancelFunc{}, bodies: map[int]*body{}}
 }
 
 var methods = map[string]bool{http.MethodGet: true, http.MethodHead: true, http.MethodPost: true, http.MethodDelete: true, http.MethodPut: true}
@@ -90,12 +105,29 @@ func (s *Server) Deliver(m Message) {
 	switch m.T {
 	case TypeRequest:
 		s.start(m)
+	case TypeBody, TypeEOF:
+		s.mu.Lock()
+		b := s.bodies[m.ID]
+		s.mu.Unlock()
+		switch {
+		case b == nil: // not streamed, or over
+		case m.T == TypeEOF:
+			b.CloseWithError(io.EOF)
+		case len(m.Data) > chunkSize:
+			b.CloseWithError(fmt.Errorf("bridge: a request body chunk over %d bytes", chunkSize))
+		default:
+			b.push(m.Data)
+		}
 	case TypeCancel:
 		s.mu.Lock()
 		cancel := s.reqs[m.ID]
+		b := s.bodies[m.ID]
 		s.mu.Unlock()
 		if cancel != nil {
 			cancel()
+		}
+		if b != nil {
+			b.CloseWithError(context.Canceled)
 		}
 	}
 }
@@ -106,6 +138,9 @@ func (s *Server) Close() {
 	s.closed = true
 	for _, c := range s.reqs {
 		c()
+	}
+	for _, b := range s.bodies {
+		b.CloseWithError(ErrClosed) // a handler reading a stdin returns
 	}
 	s.mu.Unlock()
 }
@@ -131,7 +166,13 @@ func (s *Server) start(m Message) {
 		s.fail(m.ID, http.StatusRequestHeaderFieldsTooLarge, "too many header fields")
 		return
 	}
-	req, err := http.NewRequest(m.Method, "http://engine"+m.URL, bytes.NewReader(m.Data))
+	var reqBody io.Reader = bytes.NewReader(m.Data)
+	var streamed *body
+	if m.Stream {
+		streamed = newBody()
+		reqBody = io.MultiReader(bytes.NewReader(m.Data), streamed)
+	}
+	req, err := http.NewRequest(m.Method, "http://engine"+m.URL, reqBody)
 	if err != nil {
 		s.fail(m.ID, http.StatusBadRequest, "bad request: "+err.Error())
 		return
@@ -162,6 +203,12 @@ func (s *Server) start(m Message) {
 		return // a duplicate id: the first one owns it
 	}
 	s.reqs[m.ID] = cancel
+	if streamed != nil {
+		// Registered before this returns: the http.body messages that
+		// follow are delivered after it, in order.
+		s.bodies[m.ID] = streamed
+		req.ContentLength = -1
+	}
 	s.mu.Unlock()
 	req = req.WithContext(ctx)
 	req.RequestURI = m.URL
@@ -173,7 +220,11 @@ func (s *Server) start(m Message) {
 			s.post(Message{T: TypeEnd, ID: m.ID})
 			s.mu.Lock()
 			delete(s.reqs, m.ID)
+			delete(s.bodies, m.ID)
 			s.mu.Unlock()
+			if streamed != nil {
+				streamed.CloseWithError(ErrClosed)
+			}
 			cancel()
 		}()
 		s.h.ServeHTTP(w, req)
@@ -238,10 +289,17 @@ type call struct {
 // ErrClosed is the error of a body read after the server went away.
 var ErrClosed = errors.New("bridge: the engine closed the connection")
 
+// streams reports whether a request's body is streamed: one of unknown
+// length (no GetBody, no ContentLength), such as a stdin.
+func streams(req *http.Request) bool {
+	return req.Body != nil && req.Body != http.NoBody && req.GetBody == nil && req.ContentLength <= 0
+}
+
 // RoundTrip implements http.RoundTripper.
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var data []byte
-	if req.Body != nil {
+	stream := streams(req)
+	if req.Body != nil && !stream {
 		b, err := io.ReadAll(io.LimitReader(req.Body, MaxBody+1))
 		req.Body.Close()
 		if err != nil {
@@ -265,7 +323,10 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	t.pending[id] = c
 	t.mu.Unlock()
 	c.body.cancel = func() { t.cancel(id) }
-	t.post(Message{T: TypeRequest, ID: id, Method: req.Method, URL: req.URL.RequestURI(), Header: h, Data: data})
+	t.post(Message{T: TypeRequest, ID: id, Method: req.Method, URL: req.URL.RequestURI(), Header: h, Data: data, Stream: stream})
+	if stream {
+		go t.pump(id, req.Body)
+	}
 	select {
 	case m := <-c.head:
 		hdr := http.Header{}
@@ -288,6 +349,30 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	case <-req.Context().Done():
 		c.body.Close()
 		return nil, req.Context().Err()
+	}
+}
+
+// pump sends a streamed request body as it is produced, then its end. It
+// stops sending when the request is over (answered to the end, or
+// cancelled); it returns when the body does (the caller closes its stdin).
+func (t *Transport) pump(id int, b io.ReadCloser) {
+	defer b.Close()
+	buf := make([]byte, chunkSize)
+	for {
+		n, err := b.Read(buf)
+		t.mu.Lock()
+		_, live := t.pending[id]
+		t.mu.Unlock()
+		if !live {
+			return
+		}
+		if n > 0 {
+			t.post(Message{T: TypeBody, ID: id, Data: append([]byte(nil), buf[:n]...)})
+		}
+		if err != nil {
+			t.post(Message{T: TypeEOF, ID: id})
+			return
+		}
 	}
 }
 

@@ -70,6 +70,8 @@ type App struct {
 	Surfaces   *Surfaces
 	Detail     *Detail
 	Terminal   *Terminal
+	// ExecShell is the shell inside the shown container (`wctr exec -it`).
+	ExecShell *ExecShell
 
 	mu         sync.Mutex
 	refreshing bool
@@ -103,6 +105,7 @@ func NewApp(eng engine.Engine, cli *CLI, post func(func())) *App {
 	a.Surfaces = newSurfaces(a)
 	a.Detail = newDetail(a)
 	a.Terminal = newTerminal(a)
+	a.ExecShell = newExecShell(a)
 	return a
 }
 

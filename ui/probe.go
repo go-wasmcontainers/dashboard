@@ -48,9 +48,14 @@ type Probe struct {
 	// where each one's frame is drawn (canvas pixels; zero before a frame).
 	Surfaces     []string
 	SurfaceBoxes []Box
-	Memory       float64
-	CPU          string
-	Dark         bool
+	// Shell is the screen of the shell inside a container, ShellLine its
+	// command line, ShellStatus how it goes ("exited with status 3").
+	Shell       string
+	ShellLine   string
+	ShellStatus string
+	Memory      float64
+	CPU         string
+	Dark        bool
 }
 
 func screenText(s *vt.Screen) string {
@@ -65,7 +70,7 @@ func (s *Scene) named() map[string]toolkit.Widget {
 		"nav": s.nav, "theme": s.themeBtn,
 		"containers.search": s.cSearch, "containers.all": s.cAll, "containers.start": s.cStart,
 		"containers.stop": s.cStop, "containers.restart": s.cRestart, "containers.remove": s.cRemove,
-		"containers.table": s.cTable, "detail": s.detail, "detail.follow": s.dFollow,
+		"containers.table": s.cTable, "detail": s.detail, "detail.follow": s.dFollow, "containers.shell": s.cShell,
 		"images.search": s.iSearch, "images.pull": s.iPull, "images.run": s.iRun, "images.remove": s.iRemove,
 		"images.force": s.iForce, "images.table": s.iTable, "pull.ref": s.pullRef, "pull.go": s.pullGo,
 		"run.go": s.runGo, "run.rm": s.runRm, "panel.close": s.panelClose,
@@ -134,6 +139,8 @@ func (s *Scene) Probe() Probe {
 			p.Boxes[fmt.Sprintf("surface.%d.dismiss", pn.id)] = Box{b.X, b.Y, b.W, b.H}
 		}
 	}
+	p.Shell = screenText(s.shellTerm.Screen())
+	p.ShellLine, p.ShellStatus = a.ExecShell.Line.Get(), a.ExecShell.Status.Get()
 	p.Mounts = a.Detail.Mounts.Slice()
 	p.Memory, p.CPU = a.Detail.Memory.Get(), a.Detail.CPU.Get()
 	return p

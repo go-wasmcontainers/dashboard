@@ -6,7 +6,7 @@ require (
 	github.com/docker/go-units v0.5.0
 	github.com/go-fleettools/buildstamp v0.1.0
 	github.com/go-opentype/fonts v0.14.0
-	github.com/go-wasmcontainers/engine v0.22.0
+	github.com/go-wasmcontainers/engine v0.29.1
 	github.com/go-widgets/mvvm v0.15.0
 	github.com/go-widgets/painter v0.16.0
 	github.com/go-widgets/toolkit v0.345.2
@@ -29,7 +29,7 @@ require (
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/go-typeset/bidi v0.3.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/klauspost/compress v1.20.0 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
