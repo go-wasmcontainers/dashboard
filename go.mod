@@ -6,11 +6,11 @@ require (
 	github.com/docker/go-units v0.5.0
 	github.com/go-fleettools/buildstamp v0.1.0
 	github.com/go-opentype/fonts v0.14.0
-	github.com/go-wasmcontainers/engine v0.29.1
+	github.com/go-wasmcontainers/engine v0.29.2
 	github.com/go-widgets/mvvm v0.15.0
 	github.com/go-widgets/painter v0.16.0
 	github.com/go-widgets/toolkit v0.345.2
-	github.com/go-widgets/webcanvas v0.6.0
+	github.com/go-widgets/webcanvas v0.7.0
 	github.com/mxschmitt/playwright-go v0.6201.1
 	github.com/spf13/cobra v1.10.2
 )

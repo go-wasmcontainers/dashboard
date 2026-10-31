@@ -18,6 +18,10 @@ func newTest(h http.HandlerFunc) *HTTP {
 
 func TestEndpoints(t *testing.T) {
 	stream := make(chan string, 4)
+	// ended says an events handler has returned: a handler whose request
+	// is over may still be in its select, and must not take an event meant
+	// for the next request.
+	ended := make(chan struct{}, 2)
 	var since string
 	e := newTest(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -28,6 +32,7 @@ func TestEndpoints(t *testing.T) {
 		case "/v1.47/system/df":
 			io.WriteString(w, `{"LayersSize":42,"Images":[{"Id":"sha256:a"}],"Volumes":[{"Name":"data","UsageData":{"Size":5,"RefCount":1}}],"Storage":{"Kind":"IndexedDB","Usage":10,"Quota":100}}`)
 		case "/v1.47/events":
+			defer func() { ended <- struct{}{} }()
 			since = r.URL.Query().Get("since")
 			w.(http.Flusher).Flush()
 			for {
@@ -94,7 +99,8 @@ func TestEndpoints(t *testing.T) {
 	if err == nil || !strings.HasPrefix(err.Error(), "bad event") || strings.Join(got, ",") != "container/start/web,image/pull/" || since != "1700000000" {
 		t.Errorf("Events = %v, %v (since %q)", got, err, since)
 	}
-	// Cancelled while streaming.
+	// Cancelled while streaming (once the first stream's handler is gone).
+	<-ended
 	cctx, cancel := context.WithCancel(ctx)
 	stream <- `{"Type":"container","Action":"die"}` + "\n"
 	err = e.Events(cctx, 0, func(Event) { cancel() })

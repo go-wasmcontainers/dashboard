@@ -1,6 +1,6 @@
 //go:build js && wasm
 
-package main
+package host
 
 import (
 	"math"
@@ -122,13 +122,27 @@ func (b *backings) Forget(id uint32) {
 	}
 }
 
-// connectSurfaces routes the worker's surface messages to the panes.
-func connectSurfaces(worker js.Value, app *vm.App, q *mvvm.Queue, scene *ui.Scene) {
+// ConnectSurfaces routes the worker's surface messages to the panes (frames
+// drawn and acknowledged) and the panes' input to the worker.
+func ConnectSurfaces(worker js.Value, app *vm.App, q *mvvm.Queue, scene *ui.Scene) {
 	scene.SetSurfaceCanvas(newBackings())
 	ack := func(id uint32, seq uint64) {
 		worker.Call("postMessage", map[string]any{"t": "frame-ack", "surface": id, "seq": float64(seq)})
 	}
 	app.Surfaces.SetAck(ack)
+	// Input for a surface's guest (go-wasmcontainers/gpu, webgpu.SurfaceInput):
+	// pointers in surface pixels, keys with KeyboardEvent.code and their text.
+	app.Surfaces.SetInput(func(ev vm.SurfaceInput) {
+		m := map[string]any{"t": "input", "surface": ev.Surface, "kind": ev.Kind}
+		switch ev.Kind {
+		case vm.KeyDown, vm.KeyUp:
+			m["code"], m["text"] = ev.Code, ev.Text
+			m["alt"], m["ctrl"], m["meta"], m["shift"] = ev.Alt, ev.Ctrl, ev.Meta, ev.Shift
+		default:
+			m["x"], m["y"] = ev.X, ev.Y
+		}
+		worker.Call("postMessage", m)
+	})
 	imageBitmap := js.Global().Get("ImageBitmap")
 	worker.Call("addEventListener", "message", js.FuncOf(func(_ js.Value, a []js.Value) any {
 		m := a[0].Get("data")

@@ -1,6 +1,11 @@
 //go:build js && wasm
 
-package main
+// Package host is the dashboard's side of the page it runs in (GOOS=js):
+// what connects the viewmodels to the page and to its engine worker beyond
+// the engine's API -- joining a class, and the GPU surfaces (their frames
+// and their input). Any page's own command can call it (the dashboard's
+// cmd/dashboard, the playground's), so the wiring exists once.
+package host
 
 import (
 	"errors"
@@ -69,9 +74,9 @@ func classStatus(m js.Value) vm.ClassStatus {
 		Network: str(m, "network"), Subnet: str(m, "subnet"), Error: str(m, "error")}
 }
 
-// connectClass offers the class dialog when the page supports it, and
-// follows the worker's class reports.
-func connectClass(g, worker js.Value, app *vm.App, q *mvvm.Queue) {
+// ConnectClass offers the class dialog when the page supports it
+// (g.__wctrClass), and follows the worker's class reports.
+func ConnectClass(g, worker js.Value, app *vm.App, q *mvvm.Queue) {
 	page := g.Get("__wctrClass")
 	if page.Type() != js.TypeObject || page.Get("useRelay").Type() != js.TypeFunction {
 		return

@@ -108,6 +108,12 @@ type Scene struct {
 	sEmpty        *toolkit.Label
 	panes         []*pane
 	surfaceCanvas SurfaceCanvas
+	// paneFocus is the pane whose guest gets the keys (nil: the widgets
+	// have the focus); code is the physical key of the event being
+	// delivered (webcanvas.KeyCodeAware); paneDrag the pane a press began on.
+	paneFocus *pane
+	paneDrag  *pane
+	code      string
 
 	// the detail's Stats tab
 	stats *statsPanel
