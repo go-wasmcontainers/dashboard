@@ -9,7 +9,7 @@ require (
 	github.com/go-wasmcontainers/engine v0.31.0
 	github.com/go-widgets/mvvm v0.15.0
 	github.com/go-widgets/painter v0.16.1
-	github.com/go-widgets/toolkit v0.349.1
+	github.com/go-widgets/toolkit v0.350.0
 	github.com/go-widgets/webcanvas v0.7.0
 	github.com/mxschmitt/playwright-go v0.6201.1
 	github.com/spf13/cobra v1.10.2
