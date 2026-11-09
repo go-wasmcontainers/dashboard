@@ -14,6 +14,7 @@ import (
 	"github.com/go-opentype/fonts/jetbrainsmono"
 	"github.com/go-widgets/mvvm"
 	"github.com/go-widgets/painter"
+	"github.com/go-widgets/shellterm"
 	"github.com/go-widgets/toolkit"
 	"github.com/go-widgets/webcanvas"
 
@@ -399,13 +400,9 @@ func (s *Scene) build() {
 	// Terminal.
 	s.term = toolkit.NewTerminal(80, 24, 5000)
 	s.term.Font = monoFont
-	s.term.OnInput = a.Terminal.Input
-	s.term.OnResize = func(cols, _ int) { a.Terminal.Resize(cols) }
-	a.Terminal.Attach(func(out string) { s.term.Write([]byte(out)); inv() }, func() {
-		s.term.Screen().WriteString("\x1b[H\x1b[2J")
-		s.term.Screen().ClearScrollback()
-		inv()
-	})
+	// Input, resize, output and clear (screen and scrollback) between the
+	// widget and the session: go-widgets/shellterm, shared with wasmdesk.
+	shellterm.Bind(s.term, a.Terminal.Session, inv)
 
 	// Footer.
 	s.hint = toolkit.NewLabel("")

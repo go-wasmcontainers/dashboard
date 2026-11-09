@@ -139,8 +139,12 @@ func TestClassDialog(t *testing.T) {
 	if l := h.app.LastCommand.Get(); l != "join class at https://relay.example as ada; then: wctr network ls" {
 		t.Errorf("join line = %q", l)
 	}
-	// The secret went to the host and nowhere else the dashboard shows.
-	for _, s := range []string{h.app.LastCommand.Get(), h.app.Error.Get(), c.Error.Get(), c.Summary(), strings.Join(h.app.Terminal.pending, "")} {
+	// The secret went to the host and nowhere else the dashboard shows. The
+	// terminal's output so far is what a view attached now receives.
+	var shown strings.Builder
+	h.app.Terminal.Attach(func(s string) { shown.WriteString(s) }, nil)
+	h.settle()
+	for _, s := range []string{h.app.LastCommand.Get(), h.app.Error.Get(), c.Error.Get(), c.Summary(), shown.String()} {
 		if strings.Contains(s, "SECRET") {
 			t.Errorf("the code leaked into %q", s)
 		}

@@ -48,14 +48,16 @@ func (r *termRig) typeWait(in, want string) {
 	r.until(want, func() bool { return strings.Contains(r.text(), want) })
 }
 
+// The dashboard's terminal through its public API: the session itself
+// (queue, pending writes, races between a note and a command) is
+// go-widgets/shellterm's and tested there.
 func TestTerminal(t *testing.T) {
 	r := newTermRig(t)
 	term := r.app.Terminal
 	term.note("before attach: not shown")
-	term.write("early ")
 	r.attach()
 	r.attach() // greets once
-	if !strings.HasPrefix(r.text(), "early wctr in the dashboard") || strings.Count(r.text(), "in the dashboard") != 1 {
+	if !strings.HasPrefix(r.text(), "wctr in the dashboard") || strings.Count(r.text(), "in the dashboard") != 1 || strings.Contains(r.text(), "before attach") {
 		t.Fatalf("greeting = %q", r.text())
 	}
 	r.typeWait("wctr ps\r", "no shell attached")
@@ -97,18 +99,6 @@ func TestTerminal(t *testing.T) {
 	}
 	sh.block = nil
 
-	// A command that starts between the call and the note's turn wins.
-	term.mu.Lock()
-	term.run = func() {}
-	term.mu.Unlock()
-	term.note("wctr rm racing")
-	r.settle()
-	term.mu.Lock()
-	term.run = nil
-	term.mu.Unlock()
-	if strings.Contains(r.text(), "racing") {
-		t.Error("a note over a running command")
-	}
 	// Dashboard actions show above the prompt, cleaned.
 	term.note("wctr rm \x1b[31mweb")
 	r.until("note", func() bool { return strings.Contains(r.text(), "# dashboard: wctr rm �[31mweb") })
@@ -116,29 +106,6 @@ func TestTerminal(t *testing.T) {
 	term.note("wctr rm hidden")
 	if strings.Contains(r.text(), "hidden") {
 		t.Error("note shown while off")
-	}
-
-	// A full input queue drops keys instead of blocking.
-	t2 := newTerminal(r.app)
-	for i := 0; i < inputQueue+5; i++ {
-		t2.Input("x")
-	}
-	if len(t2.in) != inputQueue {
-		t.Errorf("queue = %d", len(t2.in))
-	}
-	for i := 0; i < 300; i++ {
-		t2.write("x")
-	}
-	if len(t2.pending) != 256 {
-		t.Errorf("pending = %d", len(t2.pending))
-	}
-	t2.Resize(100) // before an editor exists
-	// Without the view's Clear, the escape sequences clear.
-	var b strings.Builder
-	t2.Out = func(s string) { b.WriteString(s) }
-	t2.clear()
-	if b.String() != "\x1b[H\x1b[2J" {
-		t.Errorf("clear = %q", b.String())
 	}
 }
 
