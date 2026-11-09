@@ -90,14 +90,15 @@ jobs:
         with: { go-version: '1.27.3' }
       - uses: actions/setup-node@v7
         with: { node-version: 26 }
-      # The driver is assembled from npm (playwright-core 1.57.0, the
-      # version playwright-go v0.5700.1 speaks), integrity-checked, by the
-      # playground's tool.
+      # The driver is assembled from npm (playwright-core 1.64.1, the
+      # version go.mod's playwright-go v0.6401.0 speaks: they must move
+      # together, or the driver install fails with "version not 1.64.1"),
+      # integrity-checked, by the playground's tool.
       - name: Playwright driver and ${{ matrix.browser }}
         run: |
           echo "PLAYWRIGHT_DRIVER_PATH=$RUNNER_TEMP/pwdriver" >> "$GITHUB_ENV"
           echo "PLAYWRIGHT_NODEJS_PATH=$(command -v node)" >> "$GITHUB_ENV"
-          go run github.com/go-wasmcontainers/playground/cmd/site@v0.1.0 playwright-driver --version 1.62.1 --dir "$RUNNER_TEMP/pwdriver"
+          go run github.com/go-wasmcontainers/playground/cmd/site@v0.1.0 playwright-driver --version 1.64.1 --dir "$RUNNER_TEMP/pwdriver"
           PLAYWRIGHT_DRIVER_PATH="$RUNNER_TEMP/pwdriver" PLAYWRIGHT_NODEJS_PATH="$(command -v node)" \
             go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps ${{ matrix.browser }}
       - name: the live page, used in ${{ matrix.browser }}
