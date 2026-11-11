@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version: '1.27.3' }
+        with: { go-version: '1.27.4' }
       - run: go version
       # The site is written OUTSIDE the checkout: an untracked _site/ in the
       # work tree stamped the programs vcs.modified=true (v0.4.2 shipped as
@@ -87,7 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version: '1.27.3' }
+        with: { go-version: '1.27.4' }
       - uses: actions/setup-node@v7
         with: { node-version: 26 }
       # The driver is assembled from npm (playwright-core 1.64.1, the
