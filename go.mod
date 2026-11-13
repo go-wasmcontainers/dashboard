@@ -8,10 +8,10 @@ require (
 	github.com/go-opentype/fonts v0.14.0
 	github.com/go-wasmcontainers/engine v0.39.0
 	github.com/go-widgets/mvvm v0.15.0
-	github.com/go-widgets/painter v0.17.0
-	github.com/go-widgets/shellterm v0.1.0
-	github.com/go-widgets/toolkit v0.362.0
-	github.com/go-widgets/webcanvas v0.12.0
+	github.com/go-widgets/painter v0.17.1
+	github.com/go-widgets/shellterm v0.1.2
+	github.com/go-widgets/toolkit v0.374.11
+	github.com/go-widgets/webcanvas v0.14.3
 	github.com/mxschmitt/playwright-go v0.6401.0
 	github.com/spf13/cobra v1.10.2
 )
@@ -31,6 +31,7 @@ require (
 	github.com/go-typeset/bidi v0.3.1 // indirect
 	github.com/go-widgets/lineedit v0.1.1 // indirect
 	github.com/go-widgets/textinput v0.1.1 // indirect
+	github.com/go-widgets/vcs v0.1.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
