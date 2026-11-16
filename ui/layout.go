@@ -293,6 +293,9 @@ func (s *Scene) Click(x, y int) bool {
 // move goes to its guest, coalesced to one per frame: it asks for a frame
 // (RepaintWith coalesces) whose Layers sends the last one.
 func (s *Scene) Move(x, y int) bool {
+	if s.locked {
+		return false // the pointer has no position: MouseMotion has the movement
+	}
 	if s.drag == nil && s.pointer(vm.PointerMove, x, y) {
 		if s.repaint != nil {
 			s.repaint()

@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 )
@@ -119,5 +120,69 @@ func TestSurfaceInput(t *testing.T) {
 	s.Key(7, KeyDown, "KeyA", "a", KeyModifiers{})
 	if len(got) != 0 {
 		t.Errorf("sent to an unknown or closed surface: %q", got)
+	}
+}
+
+// Mouse buttons, relative motion and the pointer lock wish (gpu v0.14.0).
+func TestSurfaceMouse(t *testing.T) {
+	h := newHarness(t)
+	s := h.app.Surfaces
+	var got []string
+	s.SetInput(func(ev SurfaceInput) {
+		switch ev.Kind {
+		case PointerMotion:
+			got = append(got, fmt.Sprintf("%s %g,%g", ev.Kind, ev.DX, ev.DY))
+		case ButtonDown, ButtonUp:
+			got = append(got, fmt.Sprintf("%s %d %g,%g", ev.Kind, ev.Button, ev.X, ev.Y))
+		default:
+			got = append(got, fmt.Sprintf("%s %g,%g", ev.Kind, ev.X, ev.Y))
+		}
+	})
+	img := Box{0, 0, 320, 240} // a 640x480 surface at half size
+	s.Open(7, "", 1, 640, 480)
+
+	// The wish is the guest's, per surface; an unknown or closed one has none.
+	if s.Capture(7) {
+		t.Error("a new surface wants the lock")
+	}
+	s.SetCapture(7, true)
+	s.SetCapture(9, true)
+	if !s.Capture(7) || s.Capture(9) {
+		t.Errorf("capture: 7 %v, 9 %v", s.Capture(7), s.Capture(9))
+	}
+
+	// Motion is scaled to surface pixels and summed over the frame: one event
+	// a frame, and none when nothing moved.
+	s.Motion(7, img, 3, -1)
+	s.Motion(7, img, 2, 0.5)
+	s.FlushMoves()
+	s.FlushMoves()
+	// A button sends the waiting motion first, so the guest sees them in order.
+	s.Motion(7, img, 1, 1)
+	s.Button(7, ButtonDown, 2, img, 160, 120)
+	s.Button(7, ButtonUp, 2, img, 400, 10) // outside the image: dropped
+	s.Button(7, ButtonUp, 2, img, 160, 120)
+	s.Button(7, PointerDown, 0, img, 160, 120) // not a button kind
+	s.Motion(7, img, 0, 0)                     // nothing moved
+	s.Motion(7, img, math.Inf(1), 0)           // not finite: dropped
+	s.FlushMoves()
+	want := []string{
+		"pointer-motion 10,-1",
+		"pointer-motion 2,2",
+		"button-down 2 321,241",
+		"button-up 2 321,241",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("events:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	// A closed surface takes nothing and wants nothing.
+	got = nil
+	s.Motion(7, img, 5, 5)
+	s.Close(7)
+	s.FlushMoves()
+	s.Button(7, ButtonDown, 0, img, 1, 1)
+	if len(got) != 0 || s.Capture(7) {
+		t.Errorf("a closed surface: %q, capture %v", got, s.Capture(7))
 	}
 }

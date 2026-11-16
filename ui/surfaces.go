@@ -198,6 +198,82 @@ func (s *Scene) pointer(kind string, x, y int) bool {
 	return true
 }
 
+// WantsPointerLock reports whether a press at canvas pixel (x, y) should lock
+// the pointer: it is on a live pane (in the Surfaces view) whose guest asked
+// for the lock (gpu's request-pointer-lock), and the pointer is not locked
+// already. The page calls requestPointerLock() from that press (a browser
+// needs a user gesture) and then calls GrabPointer to give the pane the focus,
+// so that the press itself is not the guest's: a click that only grabs the
+// mouse must not also press a menu row.
+func (s *Scene) WantsPointerLock(x, y int) bool {
+	p := s.paneAt(x, y)
+	return p != nil && !p.closed && !s.locked && s.app.Surfaces.Capture(p.id)
+}
+
+// GrabPointer gives the pane at (x, y) the focus, as a press on it does,
+// without sending the press to its guest.
+func (s *Scene) GrabPointer(x, y int) {
+	if p := s.paneAt(x, y); p != nil {
+		s.setFocus(nil)
+		s.paneFocus = p
+		s.invalidate()
+	}
+}
+
+// SetPointerLocked records that the browser locked (or released: Escape, a
+// lost focus) the pointer to the canvas. While locked, the focused pane gets
+// relative motion (MouseMotion) and no absolute moves.
+func (s *Scene) SetPointerLocked(locked bool) { s.locked = locked }
+
+// ShouldReleasePointer reports whether a locked pointer has nothing to
+// steer any more: its pane was dismissed or closed, lost the focus, or its
+// guest no longer wants the lock. The page then exits the lock.
+func (s *Scene) ShouldReleasePointer() bool {
+	p := s.paneFocus
+	return s.locked && (p == nil || p.closed || !s.app.Surfaces.Capture(p.id))
+}
+
+// PointerLocked reports whether the pointer is locked to the canvas.
+func (s *Scene) PointerLocked() bool { return s.locked }
+
+// MouseButton sends a mouse button press or release (button is
+// MouseEvent.button) to a pane's guest: the pane under (x, y), or, with the
+// pointer locked, the focused pane at the centre of its frame. It reports
+// whether a pane took it.
+func (s *Scene) MouseButton(down bool, button, x, y int) bool {
+	p := s.paneAt(x, y)
+	if s.locked {
+		p = s.paneFocus
+		if p != nil {
+			img := s.image(p)
+			x, y = img.X+img.W/2, img.Y+img.H/2
+		}
+	}
+	if p == nil || p.closed {
+		return false
+	}
+	kind := vm.ButtonUp
+	if down {
+		kind = vm.ButtonDown
+	}
+	s.app.Surfaces.Button(p.id, kind, button, s.image(p), x, y)
+	return true
+}
+
+// MouseMotion sends a relative movement of (dx, dy) canvas pixels to the
+// focused pane's guest while the pointer is locked; coalesced to one event
+// per frame, asked for like a move. A motion with no lock is not sent.
+func (s *Scene) MouseMotion(dx, dy float64) {
+	p := s.paneFocus
+	if !s.locked || p == nil || p.closed {
+		return
+	}
+	s.app.Surfaces.Motion(p.id, s.image(p), dx, dy)
+	if s.repaint != nil {
+		s.repaint()
+	}
+}
+
 // key sends a key event to the focused pane's guest.
 func (s *Scene) key(kind, text string) {
 	p := s.paneFocus

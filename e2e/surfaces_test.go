@@ -26,6 +26,10 @@ const surfaceStub = `(() => {
     if (m && m.t === "frame-ack") window.__acks.push(m.surface + ":" + m.seq);
     if (m && m.t === "input") window.__inputs.push(m.kind === "key-down" || m.kind === "key-up"
       ? m.surface + " " + m.kind + " " + m.code + " " + JSON.stringify(m.text) + " shift=" + m.shift
+      : m.kind === "pointer-motion"
+      ? m.surface + " " + m.kind + " " + m.dx.toFixed(2) + "," + m.dy.toFixed(2)
+      : m.kind.startsWith("button-")
+      ? m.surface + " " + m.kind + " " + m.button + " " + m.x.toFixed(2) + "," + m.y.toFixed(2)
       : m.surface + " " + m.kind + " " + m.x.toFixed(2) + "," + m.y.toFixed(2));
     return post.call(this, m, ...rest);
   };
@@ -164,7 +168,7 @@ func TestSurfaceFrames(t *testing.T) {
 		}
 		var out []string
 		for _, a := range v.([]any) {
-			if s := a.(string); !strings.Contains(s, "pointer-move") {
+			if s := a.(string); !strings.Contains(s, "pointer-move") && !strings.Contains(s, "button-") {
 				out = append(out, s)
 			}
 		}

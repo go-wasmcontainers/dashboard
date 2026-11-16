@@ -45,6 +45,8 @@ type surface struct {
 	lastSeq    uint64
 	times      []time.Time
 	move       *SurfaceInput // the pointer move waiting for this frame
+	dx, dy     float64       // the relative motion waiting for this frame, surface pixels
+	capture    bool          // the guest wants the pointer locked to the pane
 }
 
 // Surfaces holds the GPU surfaces the engine reports: the panes, and the
