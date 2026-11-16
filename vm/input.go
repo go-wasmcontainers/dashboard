@@ -35,8 +35,13 @@ const (
 	PointerDown = "pointer-down"
 	PointerUp   = "pointer-up"
 	PointerMove = "pointer-move"
-	KeyDown     = "key-down"
-	KeyUp       = "key-up"
+	// PointerMotion is relative motion while the pointer is locked to the
+	// pane; ButtonDown and ButtonUp are mouse buttons (gpu v0.14.0).
+	PointerMotion = "pointer-motion"
+	ButtonDown    = "button-down"
+	ButtonUp      = "button-up"
+	KeyDown       = "key-down"
+	KeyUp         = "key-up"
 )
 
 // maxKeyText bounds a key event's text (webgpu.MaxKeyText).
@@ -47,7 +52,9 @@ const maxKeyText = 64
 type SurfaceInput struct {
 	Surface                uint32
 	Kind                   string
-	X, Y                   float64 // pointers: surface pixels
+	X, Y                   float64 // pointers and buttons: surface pixels
+	DX, DY                 float64 // pointer-motion: surface pixels since the last one
+	Button                 int     // buttons: MouseEvent.button
 	Code, Text             string  // keys: KeyboardEvent.code, the text it produces
 	Alt, Ctrl, Meta, Shift bool
 }
@@ -83,6 +90,51 @@ func (s *Surfaces) Pointer(id uint32, kind string, img Box, px, py int) {
 	s.input(ev)
 }
 
+// SetCapture records whether surface id's guest wants the pointer locked to
+// its pane ({t:"surface", op:"capture"}).
+func (s *Surfaces) SetCapture(id uint32, wanted bool) {
+	if sf, ok := s.byID[id]; ok {
+		sf.capture = wanted
+	}
+}
+
+// Capture reports whether surface id is live and its guest wants the
+// pointer locked to its pane.
+func (s *Surfaces) Capture(id uint32) bool {
+	sf, ok := s.live(id)
+	return ok && sf.capture
+}
+
+// Button sends a mouse button press or release (kind ButtonDown or ButtonUp,
+// button MouseEvent.button) at canvas pixel (px, py) to surface id, drawn in
+// img. With locked, the pointer has no position: the last known one (or the
+// frame's centre) stands in. Outside the image it is dropped.
+func (s *Surfaces) Button(id uint32, kind string, button int, img Box, px, py int) {
+	sf, ok := s.live(id)
+	if !ok || (kind != ButtonDown && kind != ButtonUp) {
+		return
+	}
+	x, y, in := ToSurface(img, sf.row.W, sf.row.H, px, py)
+	if !in {
+		return
+	}
+	s.flushMove(sf)
+	s.input(SurfaceInput{Surface: id, Kind: kind, Button: button, X: x, Y: y})
+}
+
+// Motion adds a relative pointer movement of (dx, dy) canvas pixels, while
+// the pointer is locked to surface id's pane drawn in img: scaled to surface
+// pixels, summed over the frame and sent by FlushMoves, so the guest gets one
+// motion per frame whatever the mouse's rate.
+func (s *Surfaces) Motion(id uint32, img Box, dx, dy float64) {
+	sf, ok := s.live(id)
+	if !ok || img.W <= 0 || img.H <= 0 || math.IsNaN(dx) || math.IsNaN(dy) || math.IsInf(dx, 0) || math.IsInf(dy, 0) {
+		return
+	}
+	sf.dx += dx * float64(sf.row.W) / float64(img.W)
+	sf.dy += dy * float64(sf.row.H) / float64(img.H)
+}
+
 // Key sends a key event to surface id: its code, the text it produces
 // (bounded; "" when it is too long), and the modifiers.
 func (s *Surfaces) Key(id uint32, kind, code, text string, m KeyModifiers) {
@@ -113,6 +165,11 @@ func (s *Surfaces) flushMove(sf *surface) {
 	if sf.move != nil {
 		ev := *sf.move
 		sf.move = nil
+		s.input(ev)
+	}
+	if sf.dx != 0 || sf.dy != 0 {
+		ev := SurfaceInput{Surface: sf.row.ID, Kind: PointerMotion, DX: sf.dx, DY: sf.dy}
+		sf.dx, sf.dy = 0, 0
 		s.input(ev)
 	}
 }

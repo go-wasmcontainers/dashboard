@@ -144,6 +144,8 @@ the pane forwards pointer and key events to the engine worker as
 - **Keys** (`key-down`, `key-up`) carry `code`, the `KeyboardEvent.code` such as "KeyA"; `text`, the key when it is one character, at most 64 bytes; and `alt`, `ctrl`, `meta`, `shift`.
 - **Focus:** a press on a pane's frame gives that pane the focus, and its frame is drawn in the accent colour. Only the focused pane sends keys. Like a terminal, it takes every key except F6, which leaves it; a click on a widget takes the focus back.
 - **Rate:** pointer moves are coalesced to one per surface per frame.
+- **Mouse buttons** (`button-down`, `button-up`) carry `button` (`MouseEvent.button`: 0 left, 1 middle, 2 right) and `x, y`; every button goes to the guest (the left one also as `pointer-down` and `pointer-up`).
+- **Pointer lock** (go-wasmcontainers/gpu v0.14.0): a guest that calls `request-pointer-lock` is reported as `{t:"surface", op:"capture", surface, capture}`. The next press on its pane locks the pointer to the canvas (a browser needs a user gesture); that press only grabs the mouse and is not sent to the guest, so a click that grabs does not also press a menu row. While locked the pane sends `pointer-motion` (`dx`, `dy` in surface pixels, summed per frame) and no absolute moves, and buttons go to the frame's centre. The browser releases the lock on Escape; the guest's wish stays, so the next press locks again. A pane that closes, or a guest that stops asking, releases it.
 - A closed surface takes no input.
 
 The code and the releases come from go-widgets/webcanvas `KeyCodeAware` and `KeyUpper`.

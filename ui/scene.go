@@ -114,7 +114,10 @@ type Scene struct {
 	// delivered (webcanvas.KeyCodeAware); paneDrag the pane a press began on.
 	paneFocus *pane
 	paneDrag  *pane
-	code      string
+	// locked: the browser has the pointer locked to the canvas for paneFocus
+	// (SetPointerLocked); its absolute moves are then not the guest's.
+	locked bool
+	code   string
 
 	// the detail's Stats tab
 	stats *statsPanel

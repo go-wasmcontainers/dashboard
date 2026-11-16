@@ -19,6 +19,7 @@ import (
 //	{t:"surface", op:"open", surface, container, pid, width, height}
 //	{t:"surface", op:"resize", surface, width, height}
 //	{t:"surface", op:"close", surface}
+//	{t:"surface", op:"capture", surface, capture}   (the guest wants the pointer lock)
 //	{t:"frame", surface, seq, width, height, bitmap}   (bitmap transferred)
 //
 // and paces the guest on {t:"frame-ack", surface, seq}, which the dashboard
@@ -138,6 +139,10 @@ func ConnectSurfaces(worker js.Value, app *vm.App, q *mvvm.Queue, scene *ui.Scen
 		case vm.KeyDown, vm.KeyUp:
 			m["code"], m["text"] = ev.Code, ev.Text
 			m["alt"], m["ctrl"], m["meta"], m["shift"] = ev.Alt, ev.Ctrl, ev.Meta, ev.Shift
+		case vm.PointerMotion:
+			m["dx"], m["dy"] = ev.DX, ev.DY
+		case vm.ButtonDown, vm.ButtonUp:
+			m["button"], m["x"], m["y"] = ev.Button, ev.X, ev.Y
 		default:
 			m["x"], m["y"] = ev.X, ev.Y
 		}
@@ -165,6 +170,9 @@ func ConnectSurfaces(worker js.Value, app *vm.App, q *mvvm.Queue, scene *ui.Scen
 				q.Post(func() { app.Surfaces.Resize(id, w, h) })
 			case "close":
 				q.Post(func() { app.Surfaces.Close(id) })
+			case "capture":
+				wanted := m.Get("capture").Truthy()
+				q.Post(func() { app.Surfaces.SetCapture(id, wanted) })
 			}
 		case "frame":
 			bm := m.Get("bitmap")
