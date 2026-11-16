@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"math"
 	"unicode/utf8"
 
@@ -31,6 +32,12 @@ type pane struct {
 	title   *toolkit.Label
 	status  *toolkit.Label
 	dismiss *toolkit.Button
+	// The container's sound (run --audio): its level, and the buttons that
+	// change it (vm.Surfaces.StepVolume, ToggleMute).
+	sound   *toolkit.Label
+	volDown *toolkit.Button
+	volUp   *toolkit.Button
+	mute    *toolkit.Button
 	body    rect
 	closed  bool
 	shown   bool
@@ -64,6 +71,15 @@ func (s *Scene) syncPanes() {
 			p = &pane{id: id, title: toolkit.NewLabel(""), status: toolkit.NewLabel("")}
 			// Dismissing removes the pane; syncPanes then forgets its image.
 			p.dismiss = button("Dismiss", func() { sf.Dismiss(id) })
+			p.sound = toolkit.NewLabel("")
+			p.volDown = button("Vol -", func() { sf.StepVolume(id, -vm.VolumeStep) })
+			p.volUp = button("Vol +", func() { sf.StepVolume(id, vm.VolumeStep) })
+			p.mute = button("Mute", func() { sf.ToggleMute(id) })
+		}
+		if r.Muted {
+			p.sound.Text().Set(fmt.Sprintf("sound muted (%d%%)", r.Volume))
+		} else {
+			p.sound.Text().Set(fmt.Sprintf("sound %d%%", r.Volume))
 		}
 		p.title.Text().Set(r.Title)
 		p.status.Text().Set(r.Status)
@@ -108,7 +124,9 @@ func (s *Scene) layoutSurfaces(c rect) {
 		} else {
 			p.status.SetBounds(rect{X: x, Y: y + line, W: cw, H: line})
 		}
-		p.body = rect{X: x, Y: y + 2*line + g/2, W: cw, H: max(ch-2*line-g/2, 1)}
+		// The sound line: the level, then volume down, up and mute.
+		row(rect{X: x, Y: y + 2*line, W: cw, H: line}, p.sound, 0, p.volDown, 60, p.volUp, 60, p.mute, 80)
+		p.body = rect{X: x, Y: y + 3*line + g/2, W: cw, H: max(ch-3*line-g/2, 1)}
 	}
 }
 
@@ -119,6 +137,8 @@ func (s *Scene) surfaceWidgets() []toolkit.Widget {
 	for _, p := range s.panes {
 		if p.closed {
 			out = append(out, p.dismiss)
+		} else {
+			out = append(out, p.volDown, p.volUp, p.mute)
 		}
 	}
 	return out
@@ -131,7 +151,7 @@ func (s *Scene) surfaceLabels() []toolkit.Widget {
 	}
 	var out []toolkit.Widget
 	for _, p := range s.panes {
-		out = append(out, p.title, p.status)
+		out = append(out, p.title, p.status, p.sound)
 	}
 	return out
 }

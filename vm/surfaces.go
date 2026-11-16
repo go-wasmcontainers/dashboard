@@ -33,6 +33,20 @@ type SurfaceRow struct {
 	Closed bool
 	// Shown: a frame has been presented (the pane has an image to draw).
 	Shown bool
+	// Volume (0 to 100) and Muted are the level of the pane's container's
+	// sound (go-wasmcontainers/engine, run --audio). They belong to the
+	// container: two panes of one container show the same.
+	Volume int
+	Muted  bool
+}
+
+// VolumeStep is how much one press of a pane's volume buttons changes it.
+const VolumeStep = 10
+
+// level is one container's sound level.
+type level struct {
+	volume int
+	muted  bool
 }
 
 type surface struct {
@@ -59,12 +73,57 @@ type Surfaces struct {
 	ack   func(surface uint32, seq uint64)
 	input func(SurfaceInput)
 	byID  map[uint32]*surface
+	// audio applies a container's level (volume 0 to 1, muted) in the page's
+	// audio graph; levels are by container, kept across a pane's life.
+	audio  func(container string, volume float64, muted bool)
+	levels map[string]level
 	// Rows are the panes, by surface ID.
 	Rows *mvvm.ObservableList[SurfaceRow]
 }
 
 func newSurfaces(a *App) *Surfaces {
-	return &Surfaces{app: a, byID: map[uint32]*surface{}, Rows: mvvm.NewObservableList[SurfaceRow]()}
+	return &Surfaces{app: a, byID: map[uint32]*surface{}, levels: map[string]level{}, Rows: mvvm.NewObservableList[SurfaceRow]()}
+}
+
+// SetAudio sets how a container's sound level reaches the page's audio graph.
+func (s *Surfaces) SetAudio(f func(container string, volume float64, muted bool)) { s.audio = f }
+
+func (s *Surfaces) level(container string) level {
+	if l, ok := s.levels[container]; ok {
+		return l
+	}
+	return level{volume: 100}
+}
+
+// setLevel stores the level of the container of pane id and applies it. A pane
+// with no container (the engine did not say which) has no sound to control.
+func (s *Surfaces) setLevel(id uint32, f func(l level) level) {
+	sf, ok := s.byID[id]
+	if !ok || sf.container == "" {
+		return
+	}
+	l := f(s.level(sf.container))
+	l.volume = min(max(l.volume, 0), 100)
+	s.levels[sf.container] = l
+	if s.audio != nil {
+		s.audio(sf.container, float64(l.volume)/100, l.muted)
+	}
+	s.publish()
+}
+
+// SetVolume sets the volume (0 to 100) of the sound of pane id's container.
+func (s *Surfaces) SetVolume(id uint32, percent int) {
+	s.setLevel(id, func(l level) level { l.volume = percent; return l })
+}
+
+// StepVolume changes the volume by delta (VolumeStep, or its negative).
+func (s *Surfaces) StepVolume(id uint32, delta int) {
+	s.setLevel(id, func(l level) level { l.volume += delta; return l })
+}
+
+// ToggleMute mutes, or unmutes, the sound of pane id's container.
+func (s *Surfaces) ToggleMute(id uint32) {
+	s.setLevel(id, func(l level) level { l.muted = !l.muted; return l })
 }
 
 // SetAck sets how a frame is acknowledged to the engine ({t:"frame-ack"}).
@@ -256,6 +315,8 @@ func (s *Surfaces) publish() {
 		sf := s.byID[id]
 		r := sf.row
 		r.Title = fmt.Sprintf("%s — surface %d", s.owner(sf), id)
+		lv := s.level(sf.container)
+		r.Volume, r.Muted = lv.volume, lv.muted
 		switch {
 		case r.Closed:
 			r.Status = fmt.Sprintf("%dx%d, closed", r.W, r.H)

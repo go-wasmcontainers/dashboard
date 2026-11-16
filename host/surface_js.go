@@ -131,6 +131,16 @@ func ConnectSurfaces(worker js.Value, app *vm.App, q *mvvm.Queue, scene *ui.Scen
 		worker.Call("postMessage", map[string]any{"t": "frame-ack", "surface": id, "seq": float64(seq)})
 	}
 	app.Surfaces.SetAck(ack)
+	// A pane's volume and mute control the container's sound: the page's audio
+	// graph (the playground's web/audio.js, window.wctrAudio) holds one gain
+	// node per container, and setContainer(container, volume 0..1, muted) sets
+	// it. A page without sound has no wctrAudio, and the controls do nothing.
+	app.Surfaces.SetAudio(func(container string, volume float64, muted bool) {
+		a := js.Global().Get("wctrAudio")
+		if a.Type() == js.TypeObject && a.Get("setContainer").Type() == js.TypeFunction {
+			a.Call("setContainer", container, volume, muted)
+		}
+	})
 	// Input for a surface's guest (go-wasmcontainers/gpu, webgpu.SurfaceInput):
 	// pointers in surface pixels, keys with KeyboardEvent.code and their text.
 	app.Surfaces.SetInput(func(ev vm.SurfaceInput) {
