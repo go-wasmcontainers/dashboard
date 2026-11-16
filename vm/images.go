@@ -56,6 +56,8 @@ type Images struct {
 	Rows     *mvvm.ObservableList[ImageRow]
 	Search   *mvvm.Observable[string]
 	Selected *mvvm.Observable[string] // row Key
+	// SelectedSet is every selected row's Key, driven from the table.
+	SelectedSet *mvvm.Observable[[]string]
 
 	// PullRef is the pull dialog's reference; Pulling says a pull runs;
 	// PullLog is its progress, one line per message.
@@ -72,9 +74,11 @@ func newImages(a *App) *Images {
 		Rows:     mvvm.NewObservableList[ImageRow](),
 		Search:   mvvm.NewObservable(""),
 		Selected: mvvm.NewObservable(""),
-		PullRef:  mvvm.NewObservable(""),
-		Pulling:  mvvm.NewObservable(false),
-		PullLog:  mvvm.NewObservableList[string](),
+
+		SelectedSet: newSet(),
+		PullRef:     mvvm.NewObservable(""),
+		Pulling:     mvvm.NewObservable(false),
+		PullLog:     mvvm.NewObservableList[string](),
 	}
 	im.Run = newRunForm(a)
 	im.Search.SubscribeChanged(im.refilter)
@@ -121,6 +125,7 @@ func (im *Images) refilter() {
 	if _, ok := im.Find(im.Selected.Get()); !ok {
 		im.Selected.Set("")
 	}
+	pruneSet(im.SelectedSet, im.Rows, ImageRow.Key)
 }
 
 // Find returns the row with key.
@@ -364,3 +369,29 @@ func (f *RunForm) Start() bool {
 	})
 	return true
 }
+
+// Targets are the images an action acts on: every selected row, else the
+// anchor row.
+func (im *Images) Targets() []ImageRow {
+	return pick(im.SelectedSet.Get(), im.Selected.Get(), im.Rows, ImageRow.Key)
+}
+
+// RemoveJobs removes every selected image.
+func (im *Images) RemoveJobs(force bool) []Job {
+	rows := im.Targets()
+	jobs := make([]Job, len(rows))
+	for i, r := range rows {
+		ref := r.Ref
+		if strings.HasPrefix(ref, "<none>") {
+			ref = r.ID
+		}
+		jobs[i] = Job{Line: im.RemoveLine(r, force), Name: ref, Run: func(ctx context.Context) error {
+			_, err := im.app.eng.RemoveImage(ctx, ref, force)
+			return err
+		}}
+	}
+	return jobs
+}
+
+// RemoveSelected removes every selected image.
+func (im *Images) RemoveSelected(force bool) { im.app.DoAll(im.RemoveJobs(force)) }

@@ -257,7 +257,7 @@ func (a *App) Do(line string, fn func(ctx context.Context) error) {
 	a.Terminal.note(line)
 	a.Pending.Set(a.Pending.Get() + 1)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
 		defer cancel()
 		err := fn(ctx)
 		a.post(func() {

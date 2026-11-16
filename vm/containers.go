@@ -81,6 +81,9 @@ type Containers struct {
 	SortAsc *mvvm.Observable[bool]
 	// Selected is the selected container's ID ("" for none).
 	Selected *mvvm.Observable[string]
+	// SelectedSet is every selected container's ID, driven from the table
+	// (empty: the actions take Selected alone).
+	SelectedSet *mvvm.Observable[[]string]
 }
 
 func newContainers(a *App) *Containers {
@@ -92,6 +95,8 @@ func newContainers(a *App) *Containers {
 		SortCol:  mvvm.NewObservable(ColCreated),
 		SortAsc:  mvvm.NewObservable(false),
 		Selected: mvvm.NewObservable(""),
+
+		SelectedSet: newSet(),
 	}
 	for _, o := range []mvvm.Changeable{c.ShowAll, c.Search, c.SortCol, c.SortAsc} {
 		o.SubscribeChanged(c.refilter)
@@ -159,6 +164,7 @@ func (c *Containers) refilter() {
 	if _, ok := c.Find(c.Selected.Get()); !ok {
 		c.Selected.Set("")
 	}
+	pruneSet(c.SelectedSet, c.Rows, func(r ContainerRow) string { return r.ID })
 }
 
 // Counts is how many containers run and exist.
@@ -214,4 +220,69 @@ func (c *Containers) Restart(r ContainerRow) {
 // Remove removes the container (forced when it runs).
 func (c *Containers) Remove(r ContainerRow) {
 	c.app.Do(c.RemoveLine(r), func(ctx context.Context) error { return c.app.eng.Remove(ctx, r.ID, r.Running()) })
+}
+
+// Targets are the containers an action acts on: every selected row, else
+// the anchor row.
+func (c *Containers) Targets() []ContainerRow {
+	return pick(c.SelectedSet.Get(), c.Selected.Get(), c.Rows, func(r ContainerRow) string { return r.ID })
+}
+
+// containerJobs builds one job per row of rows.
+func (c *Containers) containerJobs(rows []ContainerRow, line func(ContainerRow) string, run func(context.Context, ContainerRow) error) []Job {
+	jobs := make([]Job, len(rows))
+	for i, r := range rows {
+		jobs[i] = Job{Line: line(r), Name: r.Ref(), Run: func(ctx context.Context) error { return run(ctx, r) }}
+	}
+	return jobs
+}
+
+// StartJobs starts the selected containers that are not running.
+func (c *Containers) StartJobs() []Job {
+	var rows []ContainerRow
+	for _, r := range c.Targets() {
+		if !r.Running() {
+			rows = append(rows, r)
+		}
+	}
+	return c.containerJobs(rows, c.StartLine, func(ctx context.Context, r ContainerRow) error { return c.app.eng.Start(ctx, r.ID) })
+}
+
+// StopJobs stops the selected containers that are running.
+func (c *Containers) StopJobs() []Job {
+	var rows []ContainerRow
+	for _, r := range c.Targets() {
+		if r.Running() {
+			rows = append(rows, r)
+		}
+	}
+	return c.containerJobs(rows, c.StopLine, func(ctx context.Context, r ContainerRow) error { return c.app.eng.Stop(ctx, r.ID) })
+}
+
+// RestartJobs restarts every selected container.
+func (c *Containers) RestartJobs() []Job {
+	return c.containerJobs(c.Targets(), c.RestartLine, func(ctx context.Context, r ContainerRow) error { return c.app.eng.Restart(ctx, r.ID) })
+}
+
+// RemoveJobs removes every selected container (forced when it runs).
+func (c *Containers) RemoveJobs() []Job {
+	return c.containerJobs(c.Targets(), c.RemoveLine, func(ctx context.Context, r ContainerRow) error {
+		return c.app.eng.Remove(ctx, r.ID, r.Running())
+	})
+}
+
+// StartSelected, StopSelected, RestartSelected and RemoveSelected act on
+// the whole selection.
+func (c *Containers) StartSelected()   { c.app.DoAll(c.StartJobs()) }
+func (c *Containers) StopSelected()    { c.app.DoAll(c.StopJobs()) }
+func (c *Containers) RestartSelected() { c.app.DoAll(c.RestartJobs()) }
+func (c *Containers) RemoveSelected()  { c.app.DoAll(c.RemoveJobs()) }
+
+// JobsLine is the hover line of an action: what its jobs will run.
+func JobsLine(jobs []Job) string {
+	lines := make([]string, len(jobs))
+	for i, j := range jobs {
+		lines[i] = j.Line
+	}
+	return JoinLines(lines)
 }

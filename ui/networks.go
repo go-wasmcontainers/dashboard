@@ -44,11 +44,8 @@ func (s *Scene) buildNetworks() {
 	s.nName.Placeholder = "new network name"
 	bindObs(s.nName.Text(), n.NewName, inv)
 	s.nCreate = button("Create", n.Create)
-	s.nRemove = button("Remove", func() {
-		if name := n.Selected.Get(); name != "" {
-			n.Remove(name)
-		}
-	})
+	s.nRemove = button("Remove", n.RemoveSelected)
+	n.SelectedSet.SubscribeChanged(func() { s.updateButtons(); inv() })
 	s.nInspect = toolkit.NewListBox(nil)
 	bindItems(s.nInspect, n.Inspect, inspectLine, inv)
 

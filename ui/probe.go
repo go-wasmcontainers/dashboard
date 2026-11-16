@@ -111,6 +111,11 @@ func (s *Scene) Probe() Probe {
 			p.Focus = name
 		}
 	}
+	for name, t := range map[string]*toolkit.Table{"containers": s.cTable, "images": s.iTable, "volumes": s.vTable, "networks": s.nTable} {
+		if shown[t] {
+			s.rowBoxes(p.Boxes, name, t)
+		}
+	}
 	for i := 0; i < a.Containers.Rows.Len(); i++ {
 		p.Containers = append(p.Containers, a.Containers.Rows.At(i).Name)
 	}
@@ -144,4 +149,22 @@ func (s *Scene) Probe() Probe {
 	p.Mounts = a.Detail.Mounts.Slice()
 	p.Memory, p.CPU = a.Detail.Memory.Get(), a.Detail.CPU.Get()
 	return p
+}
+
+// rowBoxes adds the table's visible rows to boxes as "<name>.row.<i>", so a
+// test can click a row: the extent of the pixels the table maps to row i.
+func (s *Scene) rowBoxes(boxes map[string]Box, name string, t *toolkit.Table) {
+	b := t.Bounds()
+	first, last := map[int]int{}, map[int]int{}
+	for y := 0; y < b.H; y++ {
+		if i := t.RowAt(b.W/2, y); i >= 0 {
+			if _, ok := first[i]; !ok {
+				first[i] = y
+			}
+			last[i] = y
+		}
+	}
+	for i, y := range first {
+		boxes[fmt.Sprintf("%s.row.%d", name, i)] = Box{b.X, b.Y + y, b.W, last[i] - y + 1}
+	}
 }

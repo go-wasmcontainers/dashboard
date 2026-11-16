@@ -46,6 +46,8 @@ type Volumes struct {
 	Message *mvvm.Observable[string]
 	// Selected is the selected volume's name.
 	Selected *mvvm.Observable[string]
+	// SelectedSet is every selected volume's name, driven from the table.
+	SelectedSet *mvvm.Observable[[]string]
 	// NewName is the create field.
 	NewName *mvvm.Observable[string]
 	// Inspect is the selected volume's inspect document as a tree.
@@ -57,7 +59,7 @@ type Volumes struct {
 func newVolumes(a *App) *Volumes {
 	v := &Volumes{app: a, Rows: mvvm.NewObservableList[VolumeRow](), Notice: mvvm.NewObservable(""),
 		Supported: mvvm.NewObservable(VolumesUnknown), Message: mvvm.NewObservable(""),
-		Selected: mvvm.NewObservable(""), NewName: mvvm.NewObservable(""),
+		Selected: mvvm.NewObservable(""), SelectedSet: newSet(), NewName: mvvm.NewObservable(""),
 		Inspect: mvvm.NewObservableList[InspectNode]()}
 	v.Selected.Subscribe(func(string) { v.inspect() })
 	return v
@@ -110,6 +112,7 @@ func (v *Volumes) apply(list []engine.Volume, err error, version string, df *eng
 	if _, ok := v.Find(v.Selected.Get()); !ok {
 		v.Selected.Set("")
 	}
+	pruneSet(v.SelectedSet, v.Rows, func(r VolumeRow) string { return r.Name })
 }
 
 // Find returns the row of the volume name.
@@ -201,3 +204,25 @@ func (v *Volumes) Prune(all bool) {
 		return err
 	})
 }
+
+// Targets are the volumes an action acts on: every selected row, else the
+// anchor row.
+func (v *Volumes) Targets() []VolumeRow {
+	return pick(v.SelectedSet.Get(), v.Selected.Get(), v.Rows, func(r VolumeRow) string { return r.Name })
+}
+
+// RemoveJobs removes every selected volume.
+func (v *Volumes) RemoveJobs(force bool) []Job {
+	rows := v.Targets()
+	jobs := make([]Job, len(rows))
+	for i, r := range rows {
+		name := r.Name
+		jobs[i] = Job{Line: v.RemoveLine(name, force), Name: name, Run: func(ctx context.Context) error {
+			return v.app.eng.VolumeRemove(ctx, name, force)
+		}}
+	}
+	return jobs
+}
+
+// RemoveSelected removes every selected volume.
+func (v *Volumes) RemoveSelected(force bool) { v.app.DoAll(v.RemoveJobs(force)) }
