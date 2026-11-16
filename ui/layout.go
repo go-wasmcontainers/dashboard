@@ -273,6 +273,7 @@ func (s *Scene) setFocus(w toolkit.Widget) {
 // Click implements webcanvas.App. A press on a surface pane's frame area
 // gives that pane the focus and goes to its guest (pointer-down).
 func (s *Scene) Click(x, y int) bool {
+	defer s.pullSelection()
 	w := s.hit(x, y)
 	if w == nil {
 		if s.pointer(vm.PointerDown, x, y) {
@@ -300,6 +301,7 @@ func (s *Scene) Move(x, y int) bool {
 	}
 	if s.drag != nil {
 		s.drag.OnEvent(local(s.event(toolkit.EventMouseDrag, x, y), s.drag))
+		s.pullSelection()
 		return true
 	}
 	b, _ := s.hit(x, y).(*toolkit.Button)
@@ -318,6 +320,7 @@ func (s *Scene) Move(x, y int) bool {
 // Release implements webcanvas.App. A press that began on a surface pane
 // ends there (pointer-up, dropped outside the frame).
 func (s *Scene) Release(x, y int) bool {
+	defer s.pullSelection()
 	if s.paneDrag != nil {
 		s.paneDrag = nil
 		s.pointer(vm.PointerUp, x, y)
@@ -368,6 +371,7 @@ func (s *Scene) Char(c string) bool {
 // surface pane with the focus is like a terminal: its guest gets every key
 // but F6, which leaves it.
 func (s *Scene) KeyDown(key string) bool {
+	defer s.pullSelection()
 	ev := toolkit.Event{Kind: toolkit.EventKeyDown, Code: key, Ctrl: s.mods.Ctrl, Shift: s.mods.Shift, Alt: s.mods.Alt, Meta: s.mods.Meta}
 	if s.paneFocus != nil {
 		if key == "F6" {

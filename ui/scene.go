@@ -214,17 +214,17 @@ func (s *Scene) build() {
 	bindObs(s.cSearch.Text(), c.Search, inv)
 	s.cAll = toolkit.NewCheckButton("Show stopped", true)
 	bindObs(s.cAll.Checked(), c.ShowAll, inv)
-	s.cStart = button("Start", func() { s.withContainer(c.Start) })
-	s.cStop = button("Stop", func() { s.withContainer(c.Stop) })
-	s.cRestart = button("Restart", func() { s.withContainer(c.Restart) })
-	s.cRemove = button("Remove", func() { s.withContainer(c.Remove) })
+	s.cStart = button("Start", c.StartSelected)
+	s.cStop = button("Stop", c.StopSelected)
+	s.cRestart = button("Restart", c.RestartSelected)
+	s.cRemove = button("Remove", c.RemoveSelected)
 	s.cShell = button("Open shell", func() { s.withContainer(s.openShell) })
 	cols := make([]toolkit.TableColumn, vm.NumContainerCols)
 	for i, t := range vm.ContainerColumns {
 		cols[i] = toolkit.TableColumn{Title: t, Sortable: true}
 	}
 	s.cTable = toolkit.NewTable(cols, nil)
-	s.cTable.MultiSelect = true // a click selects (one row: the actions take one)
+	s.cTable.MultiSelect = true // the actions take every selected row (Open shell: one)
 	s.cTable.Framed, s.cTable.RowLines = true, true
 	bindObs(s.cTable.SortColumn(), c.SortCol, inv)
 	bindObs(s.cTable.SortAsc(), c.SortAsc, inv)
@@ -242,6 +242,7 @@ func (s *Scene) build() {
 			c.Selected.Set(c.Rows.At(i).ID)
 		}
 	})
+	c.SelectedSet.SubscribeChanged(func() { s.updateButtons(); inv() })
 	c.Selected.Subscribe(func(id string) {
 		a.Detail.Open(id)
 		s.syncContainerSelection()
@@ -303,11 +304,7 @@ func (s *Scene) build() {
 		s.openPanel(panelRun)
 	})
 	s.iForce = toolkit.NewCheckButton("Force", false)
-	s.iRemove = button("Remove", func() {
-		if r, ok := im.Find(im.Selected.Get()); ok {
-			im.Remove(r, s.iForce.Checked().Get())
-		}
-	})
+	s.iRemove = button("Remove", func() { im.RemoveSelected(s.iForce.Checked().Get()) })
 	icols := make([]toolkit.TableColumn, vm.NumImageCols)
 	for i, t := range vm.ImageColumns {
 		icols[i] = toolkit.TableColumn{Title: t}
@@ -322,6 +319,7 @@ func (s *Scene) build() {
 		}
 	})
 	im.Selected.Subscribe(func(string) { s.syncImageSelection(); s.updateButtons(); inv() })
+	im.SelectedSet.SubscribeChanged(func() { s.updateButtons(); inv() })
 	s.panelTitle = button("", nil)
 	s.panelClose = button("Close", func() { s.openPanel(panelNone) })
 	s.pullRef = toolkit.NewEntry("")
@@ -375,6 +373,7 @@ func (s *Scene) build() {
 		}
 	})
 	v.Selected.Subscribe(func(string) { s.syncVolumeSelection(); s.updateButtons(); inv() })
+	v.SelectedSet.SubscribeChanged(func() { s.updateButtons(); inv() })
 	s.vMsg = toolkit.NewLabel("")
 	bindLabel(s.vMsg, v.Message.Get, inv, v.Message)
 	s.vNotice = toolkit.NewLabel("")
@@ -384,11 +383,7 @@ func (s *Scene) build() {
 	bindObs(s.vName.Text(), v.NewName, inv)
 	s.vCreate = button("Create", v.Create)
 	s.vForce = toolkit.NewCheckButton("Force", false)
-	s.vRemove = button("Remove", func() {
-		if name := v.Selected.Get(); name != "" {
-			v.Remove(name, s.vForce.Checked().Get())
-		}
-	})
+	s.vRemove = button("Remove", func() { v.RemoveSelected(s.vForce.Checked().Get()) })
 	s.vAll = toolkit.NewCheckButton("All unused", false)
 	s.vPrune = button("Prune", func() { v.Prune(s.vAll.Checked().Get()) })
 	s.vInspect = toolkit.NewListBox(nil)
@@ -477,8 +472,9 @@ func bindObs[T any](widget, model *mvvm.Observable[T], invalidate func()) {
 }
 
 func (s *Scene) withContainer(act func(vm.ContainerRow)) {
-	if r, ok := s.app.Containers.Find(s.app.Containers.Selected.Get()); ok {
-		act(r)
+	// A one-row action: with several rows selected it does nothing.
+	if rows := s.app.Containers.Targets(); len(rows) == 1 {
+		act(rows[0])
 	}
 }
 
@@ -507,37 +503,37 @@ func (s *Scene) syncImageSelection() {
 
 // updateButtons enables the actions that apply to the selection.
 func (s *Scene) updateButtons() {
-	r, ok := s.app.Containers.Find(s.app.Containers.Selected.Get())
-	s.cStart.Disabled().Set(!ok || r.Running())
-	s.cStop.Disabled().Set(!ok || !r.Running())
-	s.cRestart.Disabled().Set(!ok)
-	s.cRemove.Disabled().Set(!ok)
-	s.cShell.Disabled().Set(!ok || !r.Running())
-	_, img := s.app.Images.Find(s.app.Images.Selected.Get())
-	s.iRemove.Disabled().Set(!img)
-	s.vRemove.Disabled().Set(s.app.Volumes.Selected.Get() == "")
-	s.nRemove.Disabled().Set(s.app.Networks.Selected.Get() == "")
+	c := s.app.Containers
+	rows := c.Targets()
+	s.cStart.Disabled().Set(len(c.StartJobs()) == 0)
+	s.cStop.Disabled().Set(len(c.StopJobs()) == 0)
+	s.cRestart.Disabled().Set(len(rows) == 0)
+	s.cRemove.Disabled().Set(len(rows) == 0)
+	s.cShell.Disabled().Set(len(rows) != 1 || !rows[0].Running())
+	s.iRemove.Disabled().Set(len(s.app.Images.Targets()) == 0)
+	s.vRemove.Disabled().Set(len(s.app.Volumes.Targets()) == 0)
+	s.nRemove.Disabled().Set(len(s.app.Networks.Targets()) == 0)
 }
 
 // buttonLine is the command line a hovered action button stands for.
 func (s *Scene) buttonLine(b *toolkit.Button) string {
 	c := s.app.Containers
-	r, ok := c.Find(c.Selected.Get())
+	rows := c.Targets()
 	switch {
-	case b == s.cStart && ok:
-		return "Start = " + c.StartLine(r)
-	case b == s.cStop && ok:
-		return "Stop = " + c.StopLine(r)
-	case b == s.cRestart && ok:
-		return "Restart = " + c.RestartLine(r)
-	case b == s.cShell && ok:
-		return "Open shell = " + vm.Line("exec", "-it", r.Ref(), "sh")
-	case b == s.cRemove && ok:
-		return "Remove = " + c.RemoveLine(r)
+	case b == s.cStart && len(c.StartJobs()) > 0:
+		return "Start = " + vm.JobsLine(c.StartJobs())
+	case b == s.cStop && len(c.StopJobs()) > 0:
+		return "Stop = " + vm.JobsLine(c.StopJobs())
+	case b == s.cRestart && len(rows) > 0:
+		return "Restart = " + vm.JobsLine(c.RestartJobs())
+	case b == s.cShell && len(rows) == 1:
+		return "Open shell = " + vm.Line("exec", "-it", rows[0].Ref(), "sh")
+	case b == s.cRemove && len(rows) > 0:
+		return "Remove = " + vm.JobsLine(c.RemoveJobs())
 	}
 	im := s.app.Images
-	if ir, ok := im.Find(im.Selected.Get()); ok && b == s.iRemove {
-		return "Remove = " + im.RemoveLine(ir, s.iForce.Checked().Get())
+	if b == s.iRemove && len(im.Targets()) > 0 {
+		return "Remove = " + vm.JobsLine(im.RemoveJobs(s.iForce.Checked().Get()))
 	}
 	if b == s.pullGo {
 		return "Pull = " + im.PullLine()
@@ -548,8 +544,8 @@ func (s *Scene) buttonLine(b *toolkit.Button) string {
 		return "Run = " + im.Run.Line.Get()
 	case b == s.vCreate:
 		return "Create = " + v.CreateLine()
-	case b == s.vRemove && v.Selected.Get() != "":
-		return "Remove = " + v.RemoveLine(v.Selected.Get(), s.vForce.Checked().Get())
+	case b == s.vRemove && len(v.Targets()) > 0:
+		return "Remove = " + vm.JobsLine(v.RemoveJobs(s.vForce.Checked().Get()))
 	case b == s.vPrune:
 		return "Prune = " + v.PruneLine(s.vAll.Checked().Get())
 	}
@@ -557,8 +553,8 @@ func (s *Scene) buttonLine(b *toolkit.Button) string {
 	switch {
 	case b == s.nCreate:
 		return "Create = " + n.CreateLine()
-	case b == s.nRemove && n.Selected.Get() != "":
-		return "Remove = " + n.RemoveLine(n.Selected.Get())
+	case b == s.nRemove && len(n.Targets()) > 0:
+		return "Remove = " + vm.JobsLine(n.RemoveJobs())
 	}
 	return ""
 }

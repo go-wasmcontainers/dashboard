@@ -48,6 +48,8 @@ type Networks struct {
 	Message *mvvm.Observable[string]
 	// Selected is the selected network's name.
 	Selected *mvvm.Observable[string]
+	// SelectedSet is every selected network's name, driven from the table.
+	SelectedSet *mvvm.Observable[[]string]
 	// NewName is the create field.
 	NewName *mvvm.Observable[string]
 	// Inspect is the selected network's inspect document as a tree.
@@ -57,7 +59,7 @@ type Networks struct {
 func newNetworks(a *App) *Networks {
 	n := &Networks{app: a, Rows: mvvm.NewObservableList[NetworkRow](),
 		Supported: mvvm.NewObservable(VolumesUnknown), Message: mvvm.NewObservable(""),
-		Selected: mvvm.NewObservable(""), NewName: mvvm.NewObservable(""),
+		Selected: mvvm.NewObservable(""), SelectedSet: newSet(), NewName: mvvm.NewObservable(""),
 		Inspect: mvvm.NewObservableList[InspectNode]()}
 	n.Selected.Subscribe(func(string) { n.inspect() })
 	return n
@@ -112,6 +114,7 @@ func (n *Networks) apply(list []engine.Network, err error, version string) {
 	} else {
 		n.inspect() // attachments change while it stays selected
 	}
+	pruneSet(n.SelectedSet, n.Rows, func(r NetworkRow) string { return r.Name })
 }
 
 // Find returns the row of the network name.
@@ -181,3 +184,25 @@ func (n *Networks) Remove(name string) {
 		return n.app.eng.NetworkRemove(ctx, name)
 	})
 }
+
+// Targets are the networks an action acts on: every selected row, else the
+// anchor row.
+func (n *Networks) Targets() []NetworkRow {
+	return pick(n.SelectedSet.Get(), n.Selected.Get(), n.Rows, func(r NetworkRow) string { return r.Name })
+}
+
+// RemoveJobs removes every selected network.
+func (n *Networks) RemoveJobs() []Job {
+	rows := n.Targets()
+	jobs := make([]Job, len(rows))
+	for i, r := range rows {
+		name := r.Name
+		jobs[i] = Job{Line: n.RemoveLine(name), Name: name, Run: func(ctx context.Context) error {
+			return n.app.eng.NetworkRemove(ctx, name)
+		}}
+	}
+	return jobs
+}
+
+// RemoveSelected removes every selected network.
+func (n *Networks) RemoveSelected() { n.app.DoAll(n.RemoveJobs()) }
