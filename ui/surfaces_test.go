@@ -45,6 +45,61 @@ func (b *backing) Forget(id uint32) {
 	b.forgotten = append(b.forgotten, id)
 }
 
+// The pane's sound controls: the buttons are on a live pane and step the volume
+// and mute the container's sound through the view model (the page's audio
+// graph is told), the line shows the level, a closed pane has none, and
+// the frame area is still inside the pane under them.
+func TestSurfacePaneSound(t *testing.T) {
+	r := newRig(t)
+	r.until("engine", func(p Probe) bool { return strings.HasPrefix(p.Status[0], "engine test") })
+	sf := r.app.Surfaces
+	type call struct {
+		c string
+		v float64
+		m bool
+	}
+	var calls []call
+	sf.SetAudio(func(c string, v float64, m bool) { calls = append(calls, call{c, v, m}) })
+	sf.Open(1, "cafe", 7, 640, 480)
+	r.app.View.Set(vm.ViewSurfaces)
+	r.frame()
+	p := r.s.Probe()
+	for _, k := range []string{"surface.1.voldown", "surface.1.volup", "surface.1.mute"} {
+		b, ok := p.Boxes[k]
+		if !ok || b.W <= 0 || b.H <= 0 {
+			t.Fatalf("%s missing from %v", k, p.Boxes)
+		}
+	}
+	if p.SurfaceSound[0] != "sound 100%" {
+		t.Fatalf("sound line %q", p.SurfaceSound[0])
+	}
+	r.click("surface.1.voldown")
+	r.click("surface.1.voldown")
+	r.frame()
+	if s := r.s.Probe().SurfaceSound[0]; s != "sound 80%" {
+		t.Errorf("after two steps down: %q", s)
+	}
+	r.click("surface.1.volup")
+	r.click("surface.1.mute")
+	r.frame()
+	if s := r.s.Probe().SurfaceSound[0]; s != "sound muted (90%)" {
+		t.Errorf("after up and mute: %q", s)
+	}
+	if last := calls[len(calls)-1]; last != (call{"cafe", 0.9, true}) {
+		t.Errorf("the page was told %+v", last)
+	}
+	r.click("surface.1.mute")
+	if last := calls[len(calls)-1]; last != (call{"cafe", 0.9, false}) {
+		t.Errorf("unmute: %+v", last)
+	}
+	// A closed pane has no sound controls (the container is gone).
+	sf.Close(1)
+	r.frame()
+	if _, ok := r.s.Probe().Boxes["surface.1.mute"]; ok {
+		t.Error("a closed pane still has a mute button")
+	}
+}
+
 func TestFit(t *testing.T) {
 	for _, c := range []struct {
 		r    rect

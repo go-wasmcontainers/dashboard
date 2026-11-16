@@ -48,6 +48,8 @@ type Probe struct {
 	// where each one's frame is drawn (canvas pixels; zero before a frame).
 	Surfaces     []string
 	SurfaceBoxes []Box
+	// SurfaceSound is each pane's sound line ("sound 80%", "sound muted (80%)").
+	SurfaceSound []string
 	// Shell is the screen of the shell inside a container, ShellLine its
 	// command line, ShellStatus how it goes ("exited with status 3").
 	Shell       string
@@ -139,9 +141,16 @@ func (s *Scene) Probe() Probe {
 			d = rect{}
 		}
 		p.SurfaceBoxes = append(p.SurfaceBoxes, Box{d.X, d.Y, d.W, d.H})
+		p.SurfaceSound = append(p.SurfaceSound, pn.sound.Text().Get())
 		if pn.closed && a.View.Get() == vm.ViewSurfaces {
 			b := pn.dismiss.Bounds()
 			p.Boxes[fmt.Sprintf("surface.%d.dismiss", pn.id)] = Box{b.X, b.Y, b.W, b.H}
+		}
+		if !pn.closed && a.View.Get() == vm.ViewSurfaces {
+			for name, w := range map[string]*toolkit.Button{"voldown": pn.volDown, "volup": pn.volUp, "mute": pn.mute} {
+				b := w.Bounds()
+				p.Boxes[fmt.Sprintf("surface.%d.%s", pn.id, name)] = Box{b.X, b.Y, b.W, b.H}
+			}
 		}
 	}
 	p.Shell = screenText(s.shellTerm.Screen())

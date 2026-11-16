@@ -70,6 +70,77 @@ func (e *emitter) leaks() {
 	}
 }
 
+// A pane's sound controls: volume in steps, mute, kept by container (two panes
+// of one container agree, a pane that comes back keeps the level), applied to
+// the page's audio graph, and bounded; a pane with no container has no sound.
+func TestSurfaceAudioControls(t *testing.T) {
+	h := newHarness(t)
+	s := h.app.Surfaces
+	type call struct {
+		c string
+		v float64
+		m bool
+	}
+	var calls []call
+	s.SetAudio(func(c string, v float64, m bool) { calls = append(calls, call{c, v, m}) })
+	s.Open(1, "aaaa", 1, 64, 48)
+	s.Open(2, "aaaa", 1, 64, 48)
+	s.Open(3, "bbbb", 2, 64, 48)
+	s.Open(4, "", 3, 64, 48)
+	for _, r := range s.Rows.Slice() {
+		if r.Volume != 100 || r.Muted {
+			t.Fatalf("a new pane starts at full volume: %+v", r)
+		}
+	}
+	s.StepVolume(1, -VolumeStep)
+	s.StepVolume(1, -VolumeStep)
+	if r, _ := s.Find(2); r.Volume != 80 {
+		t.Errorf("the other pane of the container shows %d, want 80", r.Volume)
+	}
+	if r, _ := s.Find(3); r.Volume != 100 {
+		t.Errorf("another container changed: %d", r.Volume)
+	}
+	s.ToggleMute(2)
+	if r, _ := s.Find(1); !r.Muted || r.Volume != 80 {
+		t.Errorf("mute: %+v", r)
+	}
+	if last := calls[len(calls)-1]; last != (call{"aaaa", 0.8, true}) {
+		t.Errorf("the page was told %+v", last)
+	}
+	s.ToggleMute(1)
+	if last := calls[len(calls)-1]; last != (call{"aaaa", 0.8, false}) {
+		t.Errorf("unmute: %+v", last)
+	}
+	// Bounds.
+	s.SetVolume(1, 250)
+	s.StepVolume(1, VolumeStep)
+	if r, _ := s.Find(1); r.Volume != 100 {
+		t.Errorf("above the bound: %d", r.Volume)
+	}
+	s.SetVolume(1, -5)
+	if r, _ := s.Find(1); r.Volume != 0 {
+		t.Errorf("below the bound: %d", r.Volume)
+	}
+	// No container, or no pane: nothing is applied.
+	n := len(calls)
+	s.SetVolume(4, 10)
+	s.ToggleMute(4)
+	s.SetVolume(99, 10)
+	if len(calls) != n {
+		t.Errorf("a pane without sound called the page: %v", calls[n:])
+	}
+	if r, _ := s.Find(4); r.Volume != 100 {
+		t.Errorf("pane without container: %+v", r)
+	}
+	// The level outlives the pane.
+	s.SetVolume(3, 30)
+	s.Dismiss(3)
+	s.Open(3, "bbbb", 2, 64, 48)
+	if r, _ := s.Find(3); r.Volume != 30 {
+		t.Errorf("a reopened pane lost its level: %d", r.Volume)
+	}
+}
+
 func TestSurfaces(t *testing.T) {
 	h := newHarness(t)
 	now := time.Unix(1_700_000_100, 0)
