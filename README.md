@@ -216,6 +216,20 @@ indicative, and the other views measured 0.94, 1.11 and 0.78 ms in the
 same run. The views only redraw when something
 changed: a refresh that finds the engine as it was emits no list event.
 
+**Only what changed is repainted and put on the canvas.** The scene is a
+go-widgets/webcanvas `DamageDrawer` (v0.15.0), the contract go-widgets/window's
+`DamageRenderer` gives a desktop host. A label's text, a list's items, a
+terminal's output, the status bar and the stats gauge report their own place
+and only that is painted again and put; an input event repaints the scene and
+reports the rectangles that differ, so one changed button is one small
+`putImageData`; a frame whose only news is a guest's image in a `Layer` (the
+panes of the Surfaces view, drawn `Opaque`) paints and puts no scene at all.
+Natively on one core (1280×800, the test engine's scene, five rounds of 100
+frames in a throwaway timing test), a whole `Draw` is 0.30 ms, a frame with
+one label changed 0.026 ms, and a frame with nothing changed 5 ns; an input
+event costs 0.44 ms (the whole repaint plus the diff). In the browser the
+saved copy and `putImageData` of the whole canvas come on top.
+
 `dashboard.wasm` (`-trimpath -ldflags="-s -w"`) is 19.41 MB raw and 4.93 MB
 gzipped (v0.4.2, go-widgets/toolkit v0.345.1). It was 22.12 MB and 5.53 MB
 with toolkit v0.344.0, so toolkit v0.345.1 cuts it by 12.3 % raw and 11.0 %

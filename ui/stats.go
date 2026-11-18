@@ -18,7 +18,7 @@ type statsPanel struct {
 	mem, cpu, counters, header *toolkit.Label
 }
 
-func newStatsPanel(d *vm.Detail, inv func()) *statsPanel {
+func newStatsPanel(d *vm.Detail, inv invalidator) *statsPanel {
 	p := &statsPanel{gauge: toolkit.NewGauge(0, 100, 0), spark: toolkit.NewSparkline(nil),
 		mem: toolkit.NewLabel(""), cpu: toolkit.NewLabel(""), counters: toolkit.NewLabel(""), header: toolkit.NewLabel("")}
 	p.gauge.Caption = "memory"
@@ -27,11 +27,11 @@ func newStatsPanel(d *vm.Detail, inv func()) *statsPanel {
 	p.spark.ShowLast = true
 	d.Memory.Subscribe(func(f float64) {
 		p.gauge.Value().Set(max(f, 0) * 100)
-		inv()
+		inv(p.gauge)
 	})
 	d.MemHistory.SubscribeChanged(func() {
 		p.spark.Values = d.MemHistory.Slice()
-		inv()
+		inv(p.spark)
 	})
 	bindLabel(p.mem, func() string {
 		if d.MemoryText.Get() == "" {

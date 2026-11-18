@@ -39,25 +39,29 @@ func bindRows[T any](t *toolkit.Table, l *mvvm.ObservableList[T], cells func(T) 
 	})
 }
 
-// bindItems keeps a ListBox's items equal to l.
-func bindItems[T any](lb *toolkit.ListBox, l *mvvm.ObservableList[T], text func(T) string, invalidate func()) {
+// invalidator damages the scene: with no widget the whole of it, with widgets
+// only the places they are drawn (see Scene.invalidate).
+type invalidator = func(...toolkit.Widget)
+
+// bindItems keeps a ListBox's items equal to l; a change damages the list box.
+func bindItems[T any](lb *toolkit.ListBox, l *mvvm.ObservableList[T], text func(T) string, invalidate invalidator) {
 	sync := func() {
 		lb.Items = lb.Items[:0]
 		for i := 0; i < l.Len(); i++ {
 			lb.Items = append(lb.Items, text(l.At(i)))
 		}
-		invalidate()
+		invalidate(lb)
 	}
 	sync()
 	l.SubscribeChanged(sync)
 }
 
 // bindLabel keeps a Label's text equal to f() whenever one of the sources
-// changes.
-func bindLabel(l *toolkit.Label, f func() string, invalidate func(), sources ...mvvm.Changeable) {
+// changes; a change damages the label.
+func bindLabel(l *toolkit.Label, f func() string, invalidate invalidator, sources ...mvvm.Changeable) {
 	set := func() {
 		l.Text().Set(f())
-		invalidate()
+		invalidate(l)
 	}
 	set()
 	for _, s := range sources {

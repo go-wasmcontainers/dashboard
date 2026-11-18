@@ -22,11 +22,11 @@ func (s *Scene) buildShell() {
 	s.shellTerm.Font = monoFont
 	s.shellTerm.OnInput = sh.Input
 	s.shellTerm.OnResize = func(cols, rows int) { sh.Resize(cols, rows) }
-	sh.Out = func(b []byte) { s.shellTerm.Write(b); inv() }
+	sh.Out = func(b []byte) { s.shellTerm.Write(b); inv(s.shellTerm) }
 	sh.Reset = func() {
 		s.shellTerm.Screen().WriteString("\x1bc")
 		s.shellTerm.Screen().ClearScrollback()
-		inv()
+		inv(s.shellTerm)
 	}
 	s.detail.AddTab("Shell", s.shellTerm)
 	d := a.Detail

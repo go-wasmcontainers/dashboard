@@ -22,7 +22,7 @@ func u(v int) int { return toolkit.Scaled(v) }
 func (s *Scene) Resize(w, h int) (int, int) {
 	s.w, s.h = max(w, u(minW)), max(h, u(minH))
 	s.layout()
-	s.dirty = true
+	s.dirty, s.full = true, true
 	return s.w, s.h
 }
 
@@ -38,7 +38,7 @@ func (s *Scene) SetPixelRatio(r float64) {
 	f := monoFace(r)
 	s.term.Font, s.logs.Font = f, f
 	s.nav.RowHeight = u(navRowH)
-	s.dirty = true
+	s.dirty, s.full = true, true
 }
 
 // RepaintWith implements webcanvas.RepaintAware.
@@ -216,9 +216,112 @@ func fillBackground(buf []byte, c toolkit.RGBA) {
 // posted (results from the engine), then paints the whole scene.
 func (s *Scene) Draw(buf []byte) {
 	s.q.Drain()
-	s.dirty = false
-	p := painter.NewPixelPainter(buf, s.w, s.h)
+	s.clearDamage()
+	s.drawWhole(buf)
+}
+
+// clearDamage forgets what was owed to the frame being drawn.
+func (s *Scene) clearDamage() {
+	s.dirty, s.full, s.unscoped = false, false, false
+	s.dmg = s.dmg[:0]
+}
+
+// drawWhole paints the whole scene into buf.
+func (s *Scene) drawWhole(buf []byte) {
 	fillBackground(buf, s.theme.Background)
+	s.paint(painter.NewPixelPainter(buf, s.w, s.h), nil)
+}
+
+// DrawDamaged implements webcanvas.DamageDrawer: it paints only what changed
+// since the last frame into buf, which holds that frame, and returns where. It
+// first runs the work the viewmodels posted, as Draw does. Then:
+//
+//   - the scene says nothing changed (a frame asked for by a guest's new image,
+//     or a pointer move over a pane): nothing is painted and nothing returned;
+//   - widgets said where they changed (a label's text, a list's items, a
+//     terminal's output, the status bar): each place is painted again, confined
+//     to it by the painter's clip, and returned;
+//   - anything else (a layout, a theme, a view, an input event): the whole scene
+//     is painted and the rectangles that differ from the frame before are
+//     returned, so an event that changed one button puts one button.
+func (s *Scene) DrawDamaged(buf []byte) []webcanvas.Rect {
+	s.q.Drain()
+	whole := s.full || s.unscoped
+	dmg := s.dmg
+	s.clearDamage()
+	canvas := rect{W: s.w, H: s.h}
+	switch {
+	case whole:
+		if len(s.prev) != len(buf) {
+			s.prev = make([]byte, len(buf))
+		}
+		copy(s.prev, buf)
+		s.drawWhole(buf)
+		return toolkit.DiffRects(buf, s.prev, s.w, s.h)
+	case len(dmg) == 0:
+		return nil
+	}
+	p := painter.NewPixelPainter(buf, s.w, s.h)
+	var out []webcanvas.Rect
+	for _, r := range mergeRects(dmg, canvas) {
+		p.PushClip(r)
+		p.FillRect(r, s.theme.Background)
+		s.paint(p, &r)
+		p.PopClip()
+		out = append(out, r)
+	}
+	return out
+}
+
+// mergeRects confines rs to the canvas, drops the empty and the covered ones,
+// and returns what is left.
+func mergeRects(rs []rect, canvas rect) []rect {
+	var in []rect
+	for _, r := range rs {
+		x0, y0 := max(r.X, canvas.X), max(r.Y, canvas.Y)
+		x1, y1 := min(r.X+r.W, canvas.X+canvas.W), min(r.Y+r.H, canvas.Y+canvas.H)
+		if x1 > x0 && y1 > y0 {
+			in = append(in, rect{X: x0, Y: y0, W: x1 - x0, H: y1 - y0})
+		}
+	}
+	var out []rect
+next:
+	for i, r := range in {
+		for j, o := range in {
+			if i != j && o.X <= r.X && o.Y <= r.Y && o.X+o.W >= r.X+r.W && o.Y+o.H >= r.Y+r.H && (o != r || j < i) {
+				continue next
+			}
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// handled reports r, an input handler's answer, and notes that when it is true
+// the scene changed in a way nobody said where.
+func (s *Scene) handled(r bool) bool {
+	if r {
+		s.unscoped = true
+	}
+	return r
+}
+
+// reaches reports whether w, drawn in a frame that repaints only the part r,
+// can put a pixel there: its bounds, with the room a focus ring, a scrollbar's
+// edge or an anti-aliased glyph can overhang them, meet r. A nil r is the whole
+// canvas.
+func reaches(w toolkit.Widget, r *rect) bool {
+	if r == nil {
+		return true
+	}
+	b, m := w.Bounds(), u(16)
+	return b.X-m < r.X+r.W && b.X+b.W+m > r.X && b.Y-m < r.Y+r.H && b.Y+b.H+m > r.Y
+}
+
+// paint draws everything over the background p already holds; with only set,
+// the widgets that cannot reach it are not drawn (p's clip keeps the others
+// inside it).
+func (s *Scene) paint(p *painter.PixelPainter, only *rect) {
 	// The sidebar: its own ground, set off from the content by a Border line.
 	side := rect{X: 0, Y: u(headerH), W: u(sideW), H: s.h - u(headerH) - u(statusH)}
 	p.FillRect(side, sidebarGround(s.theme))
@@ -228,9 +331,14 @@ func (s *Scene) Draw(buf []byte) {
 		s.drawSurfaceGrounds(p)
 	}
 	for _, w := range s.visible() {
-		w.Draw(p, s.theme)
+		if reaches(w, only) {
+			w.Draw(p, s.theme)
+		}
 	}
 	for _, w := range s.widgets() {
+		if !reaches(w, only) {
+			continue
+		}
 		th := s.theme
 		switch {
 		case w == toolkit.Widget(s.term):
@@ -284,7 +392,9 @@ func (s *Scene) setFocus(w toolkit.Widget) {
 
 // Click implements webcanvas.App. A press on a surface pane's frame area
 // gives that pane the focus and goes to its guest (pointer-down).
-func (s *Scene) Click(x, y int) bool {
+func (s *Scene) Click(x, y int) bool { return s.handled(s.click(x, y)) }
+
+func (s *Scene) click(x, y int) bool {
 	defer s.pullSelection()
 	w := s.hit(x, y)
 	if w == nil {
@@ -304,7 +414,9 @@ func (s *Scene) Click(x, y int) bool {
 // (which shows a hovered action's command line). Over a surface pane the
 // move goes to its guest, coalesced to one per frame: it asks for a frame
 // (RepaintWith coalesces) whose Layers sends the last one.
-func (s *Scene) Move(x, y int) bool {
+func (s *Scene) Move(x, y int) bool { return s.handled(s.move(x, y)) }
+
+func (s *Scene) move(x, y int) bool {
 	if s.locked {
 		return false // the pointer has no position: MouseMotion has the movement
 	}
@@ -334,7 +446,9 @@ func (s *Scene) Move(x, y int) bool {
 
 // Release implements webcanvas.App. A press that began on a surface pane
 // ends there (pointer-up, dropped outside the frame).
-func (s *Scene) Release(x, y int) bool {
+func (s *Scene) Release(x, y int) bool { return s.handled(s.release(x, y)) }
+
+func (s *Scene) release(x, y int) bool {
 	defer s.pullSelection()
 	if s.paneDrag != nil {
 		s.paneDrag = nil
@@ -353,7 +467,9 @@ func (s *Scene) Release(x, y int) bool {
 func (s *Scene) Context(x, y int) bool { return s.Click(x, y) }
 
 // Scroll implements webcanvas.Scroller.
-func (s *Scene) Scroll(x, y, dx, dy int) bool {
+func (s *Scene) Scroll(x, y, dx, dy int) bool { return s.handled(s.scroll(x, y, dx, dy)) }
+
+func (s *Scene) scroll(x, y, dx, dy int) bool {
 	w := s.hit(x, y)
 	if w == nil {
 		return false
@@ -366,6 +482,13 @@ func (s *Scene) Scroll(x, y, dx, dy int) bool {
 
 // Char implements webcanvas.App.
 func (s *Scene) Char(c string) bool {
+	if s.paneFocus != nil {
+		return s.char(c) // the guest's: the scene is as it was
+	}
+	return s.handled(s.char(c))
+}
+
+func (s *Scene) char(c string) bool {
 	if s.paneFocus != nil {
 		s.key(vm.KeyDown, c)
 		return true
@@ -386,6 +509,13 @@ func (s *Scene) Char(c string) bool {
 // surface pane with the focus is like a terminal: its guest gets every key
 // but F6, which leaves it.
 func (s *Scene) KeyDown(key string) bool {
+	if s.paneFocus != nil {
+		return s.keyDown(key) // the guest's, or F6 (which invalidates itself)
+	}
+	return s.handled(s.keyDown(key))
+}
+
+func (s *Scene) keyDown(key string) bool {
 	defer s.pullSelection()
 	ev := toolkit.Event{Kind: toolkit.EventKeyDown, Code: key, Ctrl: s.mods.Ctrl, Shift: s.mods.Shift, Alt: s.mods.Alt, Meta: s.mods.Meta}
 	if s.paneFocus != nil {
