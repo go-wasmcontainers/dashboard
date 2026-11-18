@@ -197,16 +197,28 @@ func (s *Scene) visible() []toolkit.Widget {
 	return out
 }
 
+// fillBackground sets every pixel of the RGBA buffer to c: the first pixel, then
+// the filled part copied over the rest, doubling. A pixel-by-pixel loop was
+// 4.4 ms a frame at 1280x800 in Chrome's wasm (CPU profile of the pane lane,
+// go-wasmcontainers/playground#63): 24.8 % of the page's main thread, which the
+// engine's guest waits on in present; the doubling copies are memmoves.
+func fillBackground(buf []byte, c toolkit.RGBA) {
+	if len(buf) < 4 {
+		return
+	}
+	buf[0], buf[1], buf[2], buf[3] = c.R, c.G, c.B, c.A
+	for n := 4; n < len(buf); n *= 2 {
+		copy(buf[n:], buf[:n])
+	}
+}
+
 // Draw implements webcanvas.App: it first runs the work the viewmodels
 // posted (results from the engine), then paints the whole scene.
 func (s *Scene) Draw(buf []byte) {
 	s.q.Drain()
 	s.dirty = false
 	p := painter.NewPixelPainter(buf, s.w, s.h)
-	bg := s.theme.Background
-	for i := 0; i+3 < len(buf); i += 4 {
-		buf[i], buf[i+1], buf[i+2], buf[i+3] = bg.R, bg.G, bg.B, bg.A
-	}
+	fillBackground(buf, s.theme.Background)
 	// The sidebar: its own ground, set off from the content by a Border line.
 	side := rect{X: 0, Y: u(headerH), W: u(sideW), H: s.h - u(headerH) - u(statusH)}
 	p.FillRect(side, sidebarGround(s.theme))

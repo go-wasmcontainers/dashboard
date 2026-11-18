@@ -98,6 +98,12 @@ jobs:
       - run: go version
       - run: GOOS=js GOARCH=wasm CGO_ENABLED=0 go vet ./...
       - run: GOOS=js GOARCH=wasm CGO_ENABLED=0 go build ./...
+      # What a repaint costs in the browser's wasm: the background fill is checked
+      # against the frame budget where the page runs (node runs the test binary).
+      - uses: actions/setup-node@v7
+        with: { node-version: 22 }
+      - name: fill cost under js/wasm
+        run: GOOS=js GOARCH=wasm CGO_ENABLED=0 go test -count=1 -v -run 'TestFillBackground' -exec "$(go env GOROOT)/lib/wasm/go_js_wasm_exec" ./ui
       # The site as pages.yml builds it: outside the checkout, and the
       # programs must say they come from this commit, unmodified.
       - name: site build stamps a clean commit
