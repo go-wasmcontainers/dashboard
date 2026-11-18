@@ -45,6 +45,17 @@ type Scene struct {
 	repaint func()
 	dirty   bool
 
+	// What the next frame must repaint (see DrawDamaged). full: all of it (a
+	// layout, a theme, a view, a selection: anything that is not one widget's
+	// content). unscoped: an input event changed something nobody said where;
+	// the frame repaints all of it and reports what differs. dmg: the places
+	// widgets reported (invalidate with widgets). With none of the three the
+	// scene is as it was, and the frame has no scene to repaint.
+	full, unscoped bool
+	dmg            []rect
+	// prev is the framebuffer before a whole repaint, to find what it changed.
+	prev []byte
+
 	title, version *toolkit.Label
 	themeBtn       *toolkit.Button
 	nav            *toolkit.ListBox
@@ -177,12 +188,29 @@ func (s *Scene) Wake() {
 	}
 }
 
-func (s *Scene) invalidate() {
+// invalidate asks for a frame. With no widget the whole scene is repainted:
+// that is the safe answer for a change that is not one widget's content. With
+// widgets, only the places they are drawn are, which is what a label's text, a
+// list's items or a terminal's output cost. A widget's place is its bounds plus
+// damageMargin, for the focus ring and the anti-aliased edge that leave them.
+func (s *Scene) invalidate(ws ...toolkit.Widget) {
 	s.dirty = true
+	if len(ws) == 0 {
+		s.full = true
+	}
+	for _, w := range ws {
+		b := w.Bounds()
+		m := u(damageMargin)
+		s.dmg = append(s.dmg, rect{X: b.X - m, Y: b.Y - m, W: b.W + 2*m, H: b.H + 2*m})
+	}
 	if s.repaint != nil {
 		s.repaint()
 	}
 }
+
+// damageMargin is how far past its bounds a widget's damage reaches, in
+// logical pixels.
+const damageMargin = 2
 
 func button(label string, onClick func()) *toolkit.Button { return toolkit.NewButton(label, onClick) }
 
@@ -270,11 +298,11 @@ func (s *Scene) build() {
 	s.logs = toolkit.NewTerminal(80, 10, 5000)
 	s.logs.Font = monoFont
 	s.logs.Screen().SetNewlineMode(true)
-	d.LogOut = func(b []byte) { s.logs.Write(b); inv() }
+	d.LogOut = func(b []byte) { s.logs.Write(b); inv(s.logs) }
 	d.LogReset = func() {
 		s.logs.Screen().WriteString("\x1bc")
 		s.logs.Screen().ClearScrollback()
-		inv()
+		inv(s.logs)
 	}
 	s.inspect = toolkit.NewListBox(nil)
 	bindItems(s.inspect, d.Tree, inspectLine, inv)
@@ -400,7 +428,7 @@ func (s *Scene) build() {
 	s.term.Font = monoFont
 	// Input, resize, output and clear (screen and scrollback) between the
 	// widget and the session: go-widgets/shellterm, shared with wasmdesk.
-	shellterm.Bind(s.term, a.Terminal.Session, inv)
+	shellterm.Bind(s.term, a.Terminal.Session, func() { inv(s.term) })
 
 	// Footer.
 	s.hint = toolkit.NewLabel("")
@@ -415,7 +443,7 @@ func (s *Scene) build() {
 	s.status = toolkit.NewStatusbar([]string{"", "", "", ""})
 	for i, o := range []*mvvm.Observable[string]{a.EngineVersion, a.Summary, a.Storage, a.Live} {
 		i, o := i, o
-		set := func() { s.status.SetSegment(i, o.Get()); inv() }
+		set := func() { s.status.SetSegment(i, o.Get()); inv(s.status) }
 		set()
 		o.SubscribeChanged(set)
 	}
@@ -468,7 +496,7 @@ func (s *Scene) syncVolumeSelection() {
 }
 
 // bindObs mirrors a widget observable and a viewmodel one, both ways.
-func bindObs[T any](widget, model *mvvm.Observable[T], invalidate func()) {
+func bindObs[T any](widget, model *mvvm.Observable[T], invalidate invalidator) {
 	widget.Set(model.Get())
 	model.Subscribe(func(v T) { widget.Set(v); invalidate() })
 	widget.Subscribe(func(v T) { model.Set(v) })

@@ -358,7 +358,9 @@ func (s *Scene) Layers() []webcanvas.Layer {
 		}
 		r, _ := sf.Find(p.id)
 		d := fit(p.body, r.W, r.H)
-		l := webcanvas.Layer{Image: img, X: d.X, Y: d.Y, W: d.W, H: d.H}
+		// A guest's frame has no transparent pixel, so it replaces what is
+		// under it: a frame that is all that changed costs no scene repaint.
+		l := webcanvas.Layer{Image: img, X: d.X, Y: d.Y, W: d.W, H: d.H, Opaque: true}
 		if p.closed {
 			l.Alpha = closedAlpha
 		}

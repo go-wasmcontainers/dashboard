@@ -8,10 +8,10 @@ require (
 	github.com/go-opentype/fonts v0.14.0
 	github.com/go-wasmcontainers/engine v0.39.0
 	github.com/go-widgets/mvvm v0.15.0
-	github.com/go-widgets/painter v0.17.0
+	github.com/go-widgets/painter v0.17.1
 	github.com/go-widgets/shellterm v0.1.0
 	github.com/go-widgets/toolkit v0.362.0
-	github.com/go-widgets/webcanvas v0.12.0
+	github.com/go-widgets/webcanvas v0.15.0
 	github.com/mxschmitt/playwright-go v0.6401.0
 	github.com/spf13/cobra v1.10.2
 )
