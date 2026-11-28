@@ -464,17 +464,16 @@ func navItem(p painter.Painter, theme *toolkit.Theme, rc toolkit.Rect, index int
 	sz := u(18)
 	pad := u(8)
 	if index >= 0 && index < len(navIcons) {
-		iconoir.Drawer(navIcons[index])(p, toolkit.Rect{X: rc.X + pad, Y: rc.Y + (rc.H-sz)/2, W: sz, H: sz}, ink)
+		// The glyph centres itself in the row-high square it is handed.
+		iconoir.Drawer(navIcons[index])(p, toolkit.Rect{X: rc.X, Y: rc.Y, W: rc.H, H: rc.H}, ink)
 	}
 	toolkit.DrawText(p, rc.X+2*pad+sz, rc.Y+(rc.H-toolkit.GlyphHeight())/2, item, ink)
 }
 
 // searchIcon is the search fields' magnifier: Iconoir's "search", square and
 // centred in the slot the field gives it.
-func searchIcon(p painter.Painter, r toolkit.Rect, ink toolkit.RGBA) {
-	sz := min(r.W, r.H, u(16))
-	iconoir.Drawer("search")(p, toolkit.Rect{X: r.X + (r.W-sz)/2, Y: r.Y + (r.H-sz)/2, W: sz, H: sz}, ink)
-}
+// The renderer centres the glyph in the slot and fits it to the shorter side.
+var searchIcon = iconoir.Drawer("search")
 
 // inspectLine renders an inspect tree line, indented by depth.
 func inspectLine(n vm.InspectNode) string {
