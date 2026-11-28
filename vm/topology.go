@@ -216,7 +216,7 @@ func invisibleFiller(r rune) bool {
 // as an identifier escape it (see quoteASCII) and say it is unverified.
 func RelayText(s string, max int) string {
 	var b strings.Builder
-	marks, visible, n := 0, false, 0
+	marks, n := 0, 0
 	space := false
 	for _, r := range Clean(s, 1<<20) {
 		switch {
@@ -235,7 +235,6 @@ func RelayText(s string, max int) string {
 			marks++
 		default:
 			marks = 0
-			visible = true
 		}
 		if space {
 			if n == max {
@@ -253,10 +252,7 @@ func RelayText(s string, max int) string {
 		b.WriteRune(r)
 		n++
 	}
-	if !visible {
-		return ""
-	}
-	return b.String()
+	return b.String() // nothing visible leaves the builder empty: spaces, fillers and baseless marks write nothing
 }
 
 // quoteASCII shows relay text as an escaped literal: anything that is not
