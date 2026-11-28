@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"Egress\":{\"Policy\":\"gateway\",\"Operator\":\"<b>ops\\u0000\\u202e</b>\",\"LastDenied\":{\"Host\":\"evil.example\",\"Reason\":\"not allowed\"},\"Gateway\":{\"Kind\":\"relay\",\"State\":\"down\"}}}")

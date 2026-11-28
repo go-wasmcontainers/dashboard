@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"Egress\":{\"Policy\":[[[[[[[[[[1]]]]]]]]]],\"Allowlist\":{\"Host\":1}}}")

@@ -122,6 +122,8 @@ type Scene struct {
 	tMute, tMuteProject, tMuteAll, tImport, tExport *toolkit.Button
 	tMsg                                            *toolkit.Label
 	tDetail                                         *toolkit.ListBox
+	tSplit                                          *toolkit.HBox
+	tColumn                                         *toolkit.VBox
 
 	// the detail's Networks tab
 	dNets *toolkit.ListBox

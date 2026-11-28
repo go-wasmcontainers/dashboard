@@ -89,6 +89,15 @@ func (s *Scene) buildTopology() {
 	s.tMsg = toolkit.NewLabel("")
 	bindLabel(s.tMsg, func() string { return topologySummary(t.Graph()) }, inv, t.Revision)
 	s.tDetail = toolkit.NewListBox(nil)
+	// The layout is the toolkit's: the summary line over the graph and its
+	// detail pane (a 68/32 split). The boxes only place their children; the
+	// children stay the scene's own widgets.
+	s.tSplit = toolkit.NewHBox()
+	s.tSplit.AddFlex(s.tGraph, 68)
+	s.tSplit.AddFlex(s.tDetail, 32)
+	s.tColumn = toolkit.NewVBox()
+	s.tColumn.AddFixed(s.tMsg, u(22))
+	s.tColumn.AddFlex(s.tSplit, 1)
 
 	refresh := func() { s.syncTopology(); s.updateTopologyButtons(); inv() }
 	t.Revision.SubscribeChanged(refresh)
@@ -271,13 +280,8 @@ func (s *Scene) applyTopologyTheme() {
 func (s *Scene) layoutTopology(bar, body rect) {
 	g := u(gap)
 	row(bar, s.tZoomOut, 84, s.tZoomIn, 80, s.tFit, 50, s.tMute, 70, s.tMuteProject, 110, s.tMuteAll, 90, s.tImport, 140, s.tExport, 130)
-	line := u(22)
-	s.tMsg.SetBounds(rect{X: body.X, Y: body.Y, W: body.W, H: line})
-	y := body.Y + line + g
-	h := body.Y + body.H - y
-	gw := body.W * 68 / 100
-	s.tGraph.SetBounds(rect{X: body.X, Y: y, W: gw, H: h})
-	s.tDetail.SetBounds(rect{X: body.X + gw + g, Y: y, W: body.W - gw - g, H: h})
+	s.tColumn.Spacing, s.tSplit.Spacing = g, g
+	s.tColumn.SetBounds(body)
 }
 
 func (s *Scene) topologyWidgets() []toolkit.Widget {

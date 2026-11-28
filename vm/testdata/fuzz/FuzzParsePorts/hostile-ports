@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("[{\"IP\":\"\\u0000\\u202e\",\"PrivatePort\":99999999999,\"PublicPort\":-5,\"Type\":\"x\"},[],{\"PrivatePort\":1.5e300},null]")

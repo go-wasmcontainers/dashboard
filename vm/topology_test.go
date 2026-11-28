@@ -361,3 +361,84 @@ func TestParseEgressInvalidTail(t *testing.T) {
 		t.Errorf("decoded an invalid document: %+v", e)
 	}
 }
+
+// A topology with two projects: the sound and compose actions of the view.
+func topoApp(t *testing.T) *App {
+	t.Helper()
+	h := newHarness(t)
+	h.app.Topology.graph = BuildGraph(TopoInput{
+		Containers: []api.ContainerSummary{
+			ctr("aaaa1111", "web", "shop", "running", "front"),
+			ctr("bbbb2222", "db", "shop", "running", "front"),
+			ctr("cccc3333", "tool", "", "running", "front"),
+		},
+		Networks: []engine.Network{net("front", false, map[string]string{"aaaa1111": "10.0.0.2/24", "bbbb2222": "10.0.0.3/24", "cccc3333": "10.0.0.4/24"})},
+	})
+	h.app.Sound.SetActive([]string{"aaaa1111", "bbbb2222", "cccc3333"})
+	return h.app
+}
+
+func TestTopologyMute(t *testing.T) {
+	a := topoApp(t)
+	muted := func(id string) bool { _, m := a.Sound.Level(id); return m }
+
+	a.Topology.ToggleSound("c:aaaa1111")
+	if !muted("aaaa1111") || muted("bbbb2222") {
+		t.Error("a container's speaker must mute that container only")
+	}
+	a.Topology.Selected.Set("node:c:bbbb2222")
+	a.Topology.MuteSelectedProject()
+	if !muted("bbbb2222") || muted("cccc3333") {
+		t.Error("the project mute must reach its containers only")
+	}
+	a.Topology.Selected.Set("node:n:front")
+	a.Topology.MuteSelected() // not all muted: mutes every member
+	if !muted("cccc3333") {
+		t.Error("a network's mute must reach every member")
+	}
+	a.Topology.MuteSelected() // all muted: unmutes
+	if muted("aaaa1111") || muted("cccc3333") {
+		t.Error("a second network mute must unmute")
+	}
+	a.Topology.Selected.Set("")
+	a.Topology.MuteSelected() // nothing selected: nothing happens
+	a.Topology.ToggleSound("c:missing")
+	a.Topology.MuteSelectedProject()
+}
+
+func TestTopologyDetailAndCompose(t *testing.T) {
+	a := topoApp(t)
+	a.Topology.Selected.Set("node:n:front")
+	if d := a.Topology.Detail(); len(d) == 0 || !strings.HasPrefix(d[0], "Network front") {
+		t.Errorf("hub detail = %v", d)
+	}
+	if got := a.Topology.Graph().DetailLines("node:nope"); got != nil {
+		t.Errorf("unknown node: %v", got)
+	}
+	if got := a.Topology.Graph().DetailLines("edge:nope"); got != nil {
+		t.Errorf("unknown edge: %v", got)
+	}
+
+	if a.Topology.CanImport() || a.Topology.CanExport() {
+		t.Fatal("compose offered by a page without it")
+	}
+	a.Topology.Import()
+	a.Topology.Export() // nothing to call: no panic
+	var imported int
+	var exported []string
+	a.Topology.SetCompose(func() { imported++ }, func(p string) { exported = append(exported, p) })
+	a.Topology.Selected.Set("node:c:cccc3333") // standalone: no project
+	if !a.Topology.CanImport() || a.Topology.CanExport() {
+		t.Error("export needs a compose project")
+	}
+	a.Topology.Export()
+	a.Topology.Selected.Set("node:c:aaaa1111")
+	a.Topology.Import()
+	a.Topology.Export()
+	if imported != 1 || len(exported) != 1 || exported[0] != "shop" {
+		t.Errorf("imported %d, exported %v", imported, exported)
+	}
+	if a.LastCommand.Get() != "wctr compose -p shop config" {
+		t.Errorf("last command = %q", a.LastCommand.Get())
+	}
+}
