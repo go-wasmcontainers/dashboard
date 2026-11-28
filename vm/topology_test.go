@@ -322,3 +322,42 @@ func FuzzParsePorts(f *testing.F) {
 		}
 	})
 }
+
+// Nodes come out project by project (the order of the clusters), then by name.
+func TestGraphNodeOrder(t *testing.T) {
+	g := BuildGraph(TopoInput{Containers: []api.ContainerSummary{
+		ctr("1111", "zeta", "", "running", "bridge"),
+		ctr("2222", "beta", "shop", "running", "bridge"),
+		ctr("3333", "alpha", "", "running", "bridge"),
+		ctr("4444", "omega", "shop", "running", "bridge"),
+	}})
+	var got []string
+	for _, n := range g.Nodes {
+		got = append(got, n.Label)
+	}
+	if want := []string{"beta", "omega", "alpha", "zeta"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("order = %v, want %v", got, want)
+	}
+}
+
+// An exact ID wins over a short-ID match, even when two share the prefix.
+func TestGraphExactIDBeatsPrefix(t *testing.T) {
+	a := "abcdefabcdef" + strings.Repeat("0", 52)
+	b := "abcdefabcdef" + strings.Repeat("1", 52)
+	for i := 0; i < 20; i++ {
+		g := BuildGraph(TopoInput{
+			Containers: []api.ContainerSummary{ctr(a, "a", "", "running", "bridge"), ctr(b, "b", "", "running", "bridge")},
+			Networks:   []engine.Network{net("n", false, map[string]string{b: "10.0.0.2/24"})},
+		})
+		if got := g.NetworkMembers("n"); !reflect.DeepEqual(got, []string{b}) {
+			t.Fatalf("members = %v, want only b", got)
+		}
+	}
+}
+
+// A document that is not valid JSON yields nothing, even if a prefix decoded.
+func TestParseEgressInvalidTail(t *testing.T) {
+	if e := ParseEgress([]byte(`{"Egress":{"Policy":"none"}} trailing`)); e != (Egress{}) {
+		t.Errorf("decoded an invalid document: %+v", e)
+	}
+}
