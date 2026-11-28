@@ -34,8 +34,6 @@ github.com/go-stack/stack v1.8.1 h1:ntEHSVwIt7PNXNpgPmVfMrNhLtgjlmnZha2kOpuRiDw=
 github.com/go-stack/stack v1.8.1/go.mod h1:dcoOX6HbPZSZptuspn9bctJ+N/CnF5gGygcUP3XYfe4=
 github.com/go-typeset/bidi v0.3.1 h1:fsTa0b9txt2SkH7M55EZ06+q3N9C4O0Oerf+SPLLGFs=
 github.com/go-typeset/bidi v0.3.1/go.mod h1:ct3cmYT8Qt1FGJQ+2QaakrUxqaP4ZysgdQQg2ym5+Xo=
-github.com/go-wasmcontainers/engine v0.51.0 h1:uaQ69H2++csp7JsL2n3Xc2K3hkYch9M2HWIQ9LH2dPg=
-github.com/go-wasmcontainers/engine v0.51.0/go.mod h1:fGLP5SRhvAqp6hJxnlNOfmD3WUNgrEoHTNhiuQiustI=
 github.com/go-wasmcontainers/engine v0.51.1 h1:AVfU5AFZHsNDTrYQ9Sw+RmoZa3FyLRNILGLtCMOerz0=
 github.com/go-wasmcontainers/engine v0.51.1/go.mod h1:fGLP5SRhvAqp6hJxnlNOfmD3WUNgrEoHTNhiuQiustI=
 github.com/go-widgets/lineedit v0.1.1 h1:jvlwxIWyoz/oeYH5OHwFN03vQ9Q8uAFTRF8BFGOej7I=
@@ -48,8 +46,6 @@ github.com/go-widgets/shellterm v0.1.0 h1:4Ed+ikn5Lx+hTqAB+9rcESNiL0HHSFuA+Luu5n
 github.com/go-widgets/shellterm v0.1.0/go.mod h1:aKLBjoQo61JquEUzQm6C/LXwYlDfGXrKcDFgSKIsyQM=
 github.com/go-widgets/textinput v0.1.1 h1:3NZD5CJm5XYSWA3YzQ64tXC86gnEQ0UlNPL5qJeIUSs=
 github.com/go-widgets/textinput v0.1.1/go.mod h1:Y/k3PDtUEMQ/4psCVKdmUStNWa/EsVAMcCKG2lEtQ5c=
-github.com/go-widgets/toolkit v0.413.0 h1:A2JJ8gZrrwWxEUU2+gflvDECGjZPFy176ENgNnzo9kY=
-github.com/go-widgets/toolkit v0.413.0/go.mod h1:Pckzf+rZ/3j196NtA6GatdfPEve3711ym/2JtQjLY8k=
 github.com/go-widgets/toolkit v0.414.0 h1:yiedolRGWnLuMqXYpnf9OZ1xMYjrSvZFDKCI37XdI2c=
 github.com/go-widgets/toolkit v0.414.0/go.mod h1:Pckzf+rZ/3j196NtA6GatdfPEve3711ym/2JtQjLY8k=
 github.com/go-widgets/vcs v0.1.0 h1:1pZQygSsKBWZepAgsTdqh1bwHBjPwaLM4p7bAAONGnk=
