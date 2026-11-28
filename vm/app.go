@@ -30,13 +30,14 @@ const (
 	ViewImages
 	ViewVolumes
 	ViewNetworks
+	ViewTopology
 	ViewTerminal
 	ViewSurfaces
 	NumViews
 )
 
 // ViewNames are the navigation labels.
-var ViewNames = [NumViews]string{"Containers", "Images", "Volumes", "Networks", "Terminal", "Surfaces"}
+var ViewNames = [NumViews]string{"Containers", "Images", "Volumes", "Networks", "Topology", "Terminal", "Surfaces"}
 
 // PollInterval is how often the dashboard refreshes when the engine has
 // no event stream.

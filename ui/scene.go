@@ -114,6 +114,15 @@ type Scene struct {
 	jRelayLbl, jNameLbl   *toolkit.Label
 	jCodeLbl              *toolkit.Label
 
+	// topology view: the graph, its controls and the selection's detail
+	tModel                                          *toolkit.GraphViewModel
+	tGraph                                          *toolkit.GraphView
+	tState                                          map[string]string
+	tZoomOut, tZoomIn, tFit                         *toolkit.Button
+	tMute, tMuteProject, tMuteAll, tImport, tExport *toolkit.Button
+	tMsg                                            *toolkit.Label
+	tDetail                                         *toolkit.ListBox
+
 	// the detail's Networks tab
 	dNets *toolkit.ListBox
 
@@ -422,6 +431,7 @@ func (s *Scene) build() {
 	bindItems(s.vInspect, v.Inspect, inspectLine, inv)
 
 	s.buildNetworks()
+	s.buildTopology()
 	s.buildSurfaces()
 
 	// Terminal.
@@ -457,7 +467,7 @@ const navRowH = 32
 // navIcons are the views' icons: Iconoir glyphs (MIT, go-icons/iconoir),
 // drawn through the toolkit's icon seam, rasterised at the row's device
 // size and recoloured to the row's ink.
-var navIcons = [vm.NumViews]string{"box", "package", "database", "network", "terminal", "tv"}
+var navIcons = [vm.NumViews]string{"box", "package", "database", "network", "network-right", "terminal", "tv"}
 
 // navItem draws a navigation row: its icon, then its label.
 func navItem(p painter.Painter, theme *toolkit.Theme, rc toolkit.Rect, index int, item string, selected bool, ink toolkit.RGBA) {
@@ -613,5 +623,6 @@ func (s *Scene) toggleTheme() {
 		s.theme = Light()
 		s.themeBtn.Label().Set("Dark theme")
 	}
+	s.applyTopologyTheme()
 	s.invalidate()
 }

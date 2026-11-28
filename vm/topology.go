@@ -66,6 +66,9 @@ type TopoNode struct {
 	State string
 	// Badges are short chips: the ports a container exposes but does not publish.
 	Badges []string
+	// Detail are the lines of the detail pane: plain text, cleaned and bounded
+	// (names, labels and relay strings come from outside the dashboard).
+	Detail []string
 }
 
 // TopoEdge is one directed edge: an attachment (container to network), a
@@ -256,6 +259,8 @@ func BuildGraph(in TopoInput) Graph {
 	type cn struct {
 		sum  api.ContainerSummary
 		node TopoNode
+		nets []string // "network (ip)", for the detail pane
+		pubs []string // published ports, for the detail pane
 	}
 	byID := map[string]*cn{}
 	var order []*cn
@@ -315,17 +320,21 @@ func BuildGraph(in TopoInput) Graph {
 	// Networks: a hub each, an attachment edge per member, an egress edge.
 	for _, nw := range nets {
 		hub := TopoNode{ID: "n:" + nw.Name, Label: Clean(nw.Name, 64), Category: "network", Kind: TopoNetwork, Network: nw.Name}
+		hubAt := len(g.Nodes)
 		g.Nodes = append(g.Nodes, hub)
 		ids := make([]string, 0, len(nw.Containers))
 		for id := range nw.Containers {
 			ids = append(ids, id)
 		}
 		sort.Strings(ids)
+		members := 0
 		for _, id := range ids {
 			x := find(id)
 			if x == nil {
 				continue
 			}
+			members++
+			x.nets = append(x.nets, strings.TrimSpace(Clean(nw.Name, 64)+" "+Clean(nw.Containers[id].IPv4Address, 64)))
 			addEdge(TopoEdge{ID: "a:" + nw.Name + ":" + x.sum.ID, From: x.node.ID, To: hub.ID, Label: Clean(nw.Containers[id].IPv4Address, 64)})
 		}
 		eg := in.Egress[nw.Name]
@@ -334,9 +343,10 @@ func BuildGraph(in TopoInput) Graph {
 			if eg.DeniedReason != "" {
 				d += " (" + eg.DeniedReason + ")"
 			}
-			g.Nodes[len(g.Nodes)-1].Badges = []string{d}
+			g.Nodes[hubAt].Badges = []string{d}
 		}
 		edge := egressEdge(nw, eg)
+		g.Nodes[hubAt].Detail = networkDetail(nw, eg, members, edge.Label)
 		needInternet = true
 		addEdge(edge)
 	}
@@ -358,8 +368,9 @@ func BuildGraph(in TopoInput) Graph {
 				ip = "127.0.0.1"
 			}
 			needHost = true
-			addEdge(TopoEdge{ID: fmt.Sprintf("p:%s:%s:%d", x.sum.ID, key, p.Public), From: hostNodeID, To: x.node.ID,
-				Label: fmt.Sprintf("%s:%d -> %s", ip, p.Public, key)})
+			label := fmt.Sprintf("%s:%d -> %s", ip, p.Public, key)
+			x.pubs = append(x.pubs, label)
+			addEdge(TopoEdge{ID: fmt.Sprintf("p:%s:%s:%d", x.sum.ID, key, p.Public), From: hostNodeID, To: x.node.ID, Label: label})
 		}
 		for k := range exposed {
 			if !published[k] {
@@ -371,22 +382,83 @@ func BuildGraph(in TopoInput) Graph {
 			badges = append(badges[:maxTopoPorts], fmt.Sprintf("+%d", len(badges)-maxTopoPorts))
 		}
 		x.node.Badges = badges
-		if x.sum.HostConfig.NetworkMode == "host" {
+		host := x.sum.HostConfig.NetworkMode == "host"
+		if host {
 			needHost = true
 			addEdge(TopoEdge{ID: "h:" + x.sum.ID, From: hostNodeID, To: x.node.ID, Label: "host network"})
 		}
+		x.node.Detail = containerDetail(x.node, ShortID(x.sum.ID), x.nets, x.pubs, badges, host)
 	}
 	if needHost {
-		g.Nodes = append(g.Nodes, TopoNode{ID: hostNodeID, Label: "This tab", Category: "gateway", Kind: TopoGateway})
+		g.Nodes = append(g.Nodes, TopoNode{ID: hostNodeID, Label: "This tab", Category: "gateway", Kind: TopoGateway,
+			Detail: []string{"This browser tab", "Published ports come in through it, on the address the engine bound."}})
 	}
 	if needInternet {
-		g.Nodes = append(g.Nodes, TopoNode{ID: internetNodeID, Label: "Internet", Category: "gateway", Kind: TopoGateway})
+		g.Nodes = append(g.Nodes, TopoNode{ID: internetNodeID, Label: "Internet", Category: "gateway", Kind: TopoGateway,
+			Detail: []string{"The Internet", "Each network's way out is the edge it draws to here."}})
 	}
 	for _, x := range order {
 		g.Nodes = append(g.Nodes, x.node)
 	}
 	g.Note = strings.Join(notes, "; ")
 	return g
+}
+
+func containerDetail(n TopoNode, short string, nets, pubs, exposed []string, host bool) []string {
+	out := []string{"Container " + n.Label, "ID " + short, "State " + n.State, "Project " + n.Cluster}
+	if host {
+		out = append(out, "Network host (the class relay)")
+	}
+	for _, s := range nets {
+		out = append(out, "On "+s)
+	}
+	for _, s := range pubs {
+		out = append(out, "Publishes "+s)
+	}
+	for _, s := range exposed {
+		out = append(out, "Exposes "+s)
+	}
+	return out
+}
+
+func networkDetail(nw engine.Network, e Egress, members int, egress string) []string {
+	out := []string{"Network " + Clean(nw.Name, 64), fmt.Sprintf("%d containers attached", members)}
+	if d := Clean(nw.Driver, 32); d != "" {
+		out = append(out, "Driver "+d)
+	}
+	out = append(out, "Egress: "+egress)
+	if e.Policy != "" {
+		out = append(out, "Policy "+e.Policy)
+	}
+	if e.GatewayKind != "" {
+		out = append(out, "Gateway "+e.GatewayKind+" "+e.GatewayState)
+	}
+	if e.Operator != "" {
+		out = append(out, "Operator "+e.Operator)
+	}
+	if e.DeniedHost != "" {
+		out = append(out, "Last denied "+e.DeniedHost+" "+e.DeniedReason)
+	}
+	return out
+}
+
+// DetailLines are the detail pane's lines for a selection ("node:<id>",
+// "edge:<id>"): plain text, never interpreted.
+func (g Graph) DetailLines(sel string) []string {
+	switch {
+	case strings.HasPrefix(sel, "node:"):
+		if n, ok := g.Node(strings.TrimPrefix(sel, "node:")); ok {
+			return n.Detail
+		}
+	case strings.HasPrefix(sel, "edge:"):
+		id := strings.TrimPrefix(sel, "edge:")
+		for _, e := range g.Edges {
+			if e.ID == id {
+				return []string{"Edge " + e.Label}
+			}
+		}
+	}
+	return nil
 }
 
 // egressEdge is the edge from a network to the Internet, and how it is drawn.
@@ -432,11 +504,107 @@ type Topology struct {
 	Revision *mvvm.Observable[int]
 	// Selected is "node:<id>", "edge:<id>" or "".
 	Selected *mvvm.Observable[string]
+
+	importFn func()
+	exportFn func(project string)
 }
 
 func newTopology(a *App) *Topology {
 	return &Topology{app: a, Revision: mvvm.NewObservable(0), Selected: mvvm.NewObservable("")}
 }
+
+// SetCompose sets how the page imports and exports a compose file: imp opens
+// the page's file picker, exp downloads the project's file. A page without
+// them leaves the controls disabled.
+func (t *Topology) SetCompose(imp func(), exp func(project string)) {
+	t.importFn, t.exportFn = imp, exp
+	t.Revision.Set(t.Revision.Get() + 1)
+}
+
+// CanImport and CanExport say whether the page provides the compose transfer.
+func (t *Topology) CanImport() bool { return t.importFn != nil }
+
+// CanExport says whether a compose export is possible for the selection.
+func (t *Topology) CanExport() bool { return t.exportFn != nil && t.SelectedProject() != "" }
+
+// Import asks the page to pick a compose file.
+func (t *Topology) Import() {
+	if t.importFn != nil {
+		t.app.LastCommand.Set("wctr compose config -f <file>")
+		t.importFn()
+	}
+}
+
+// Export asks the page to download the selected project's compose file.
+func (t *Topology) Export() {
+	if p := t.SelectedProject(); p != "" && t.exportFn != nil {
+		t.app.LastCommand.Set("wctr compose -p " + p + " config")
+		t.exportFn(p)
+	}
+}
+
+// SelectedNode is the node the selection names.
+func (t *Topology) SelectedNode() (TopoNode, bool) {
+	sel := t.Selected.Get()
+	if !strings.HasPrefix(sel, "node:") {
+		return TopoNode{}, false
+	}
+	return t.graph.Node(strings.TrimPrefix(sel, "node:"))
+}
+
+// SelectedProject is the compose project of the selected container ("" for a
+// standalone container, a network or nothing).
+func (t *Topology) SelectedProject() string {
+	n, ok := t.SelectedNode()
+	if !ok || n.Kind != TopoContainer || n.Cluster == standaloneCluster {
+		return ""
+	}
+	return n.Cluster
+}
+
+// NodeMembers are the containers a node's sound action reaches: itself for a
+// container, its attached containers for a network.
+func (t *Topology) NodeMembers(n TopoNode) []string {
+	switch n.Kind {
+	case TopoContainer:
+		return []string{n.Container}
+	case TopoNetwork:
+		return t.graph.NetworkMembers(n.Network)
+	}
+	return nil
+}
+
+// MuteSelected mutes the selected container, or every container of the
+// selected network (or unmutes them when all are muted already).
+func (t *Topology) MuteSelected() {
+	if n, ok := t.SelectedNode(); ok {
+		t.toggleGroup(t.NodeMembers(n))
+	}
+}
+
+// ToggleSound is the speaker toggle of a node: a container's own mute, or the
+// mute of every container on a network.
+func (t *Topology) ToggleSound(nodeID string) {
+	if n, ok := t.graph.Node(nodeID); ok {
+		t.toggleGroup(t.NodeMembers(n))
+	}
+}
+
+// MuteSelectedProject mutes the selected container's compose project.
+func (t *Topology) MuteSelectedProject() {
+	if p := t.SelectedProject(); p != "" {
+		t.toggleGroup(t.graph.ProjectMembers(p))
+	}
+}
+
+func (t *Topology) toggleGroup(ids []string) {
+	if len(ids) > 0 {
+		t.app.Sound.SetMuted(ids, !t.app.Sound.AllMuted(ids))
+	}
+}
+
+// Detail is the detail pane's text for the selection.
+func (t *Topology) Detail() []string { return t.graph.DetailLines(t.Selected.Get()) }
 
 // Graph is the current graph.
 func (t *Topology) Graph() Graph { return t.graph }

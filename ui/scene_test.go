@@ -126,10 +126,10 @@ func TestDashboard(t *testing.T) {
 	// Terminal: navigate with the keyboard, type a command.
 	r.s.KeyDown("F6") // the navigation
 	r.s.Modifiers(webcanvas.Modifiers{Alt: true})
-	r.s.KeyDown("5")
+	r.s.KeyDown("6")
 	r.s.Modifiers(webcanvas.Modifiers{})
 	if r.s.Probe().View != "Terminal" {
-		t.Fatalf("Alt+5: %s", r.s.Probe().View)
+		t.Fatalf("Alt+6: %s", r.s.Probe().View)
 	}
 	r.click("terminal")
 	r.typeText("wctr run -d --name web clock -interval 20ms")
@@ -143,7 +143,8 @@ func TestDashboard(t *testing.T) {
 		t.Fatal("a global shortcut stole a key from the terminal")
 	}
 	r.s.KeyDown("F6")      // terminal -> navigation
-	r.s.KeyDown("ArrowUp") // nav: Terminal -> Networks
+	r.s.KeyDown("ArrowUp") // nav: Terminal -> Topology
+	r.s.KeyDown("ArrowUp")
 	r.s.KeyDown("ArrowUp")
 	r.s.KeyDown("ArrowUp")
 	r.s.KeyDown("ArrowUp")
@@ -373,7 +374,7 @@ func BenchmarkFrame(b *testing.B) {
 	if app.Networks.Rows.Len() < 50 {
 		b.Fatalf("%d networks", app.Networks.Rows.Len())
 	}
-	for _, view := range []int{vm.ViewContainers, vm.ViewImages, vm.ViewNetworks, vm.ViewTerminal} {
+	for _, view := range []int{vm.ViewContainers, vm.ViewImages, vm.ViewNetworks, vm.ViewTopology, vm.ViewTerminal} {
 		app.View.Set(view)
 		name := vm.ViewNames[view]
 		b.Run(name, func(b *testing.B) {

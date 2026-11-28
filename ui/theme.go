@@ -13,8 +13,7 @@ var (
 // delimit panels and tables: at least 3:1 against every ground it sits on
 // (WCAG 2.2 SC 1.4.11, non-text contrast; asserted in theme_test.go).
 func Light() *toolkit.Theme {
-	t := toolkit.DefaultLight()
-	t.Accent = brandDeep
+	t := toolkit.Slate(brandDeep, false)
 	t.Border = toolkit.RGB(0x6B, 0x72, 0x80)
 	return t
 }
@@ -22,10 +21,8 @@ func Light() *toolkit.Theme {
 // Dark is the dark theme: the light end of the gradient as accent, and a
 // border light enough for the same 3:1.
 func Dark() *toolkit.Theme {
-	t := toolkit.DefaultDark()
-	t.Accent = brandLight
-	t.Background = toolkit.RGB(0x0F, 0x14, 0x19)
-	t.Surface = toolkit.RGB(0x16, 0x1C, 0x23)
+	t := toolkit.Slate(brandDeep, true)
+	t.Accent = brandLight // a focus ring and selection that read on the dark ground
 	t.Border = toolkit.RGB(0x8A, 0x93, 0xA0)
 	return t
 }

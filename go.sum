@@ -48,6 +48,8 @@ github.com/go-widgets/textinput v0.1.1 h1:3NZD5CJm5XYSWA3YzQ64tXC86gnEQ0UlNPL5qJ
 github.com/go-widgets/textinput v0.1.1/go.mod h1:Y/k3PDtUEMQ/4psCVKdmUStNWa/EsVAMcCKG2lEtQ5c=
 github.com/go-widgets/toolkit v0.413.0 h1:A2JJ8gZrrwWxEUU2+gflvDECGjZPFy176ENgNnzo9kY=
 github.com/go-widgets/toolkit v0.413.0/go.mod h1:Pckzf+rZ/3j196NtA6GatdfPEve3711ym/2JtQjLY8k=
+github.com/go-widgets/toolkit v0.414.0 h1:yiedolRGWnLuMqXYpnf9OZ1xMYjrSvZFDKCI37XdI2c=
+github.com/go-widgets/toolkit v0.414.0/go.mod h1:Pckzf+rZ/3j196NtA6GatdfPEve3711ym/2JtQjLY8k=
 github.com/go-widgets/vcs v0.1.0 h1:1pZQygSsKBWZepAgsTdqh1bwHBjPwaLM4p7bAAONGnk=
 github.com/go-widgets/vcs v0.1.0/go.mod h1:c2SbtsVVLJUJAf/vOeMKkFWZRFyMAeDrY8rfyUyIevs=
 github.com/go-widgets/webcanvas v0.15.0 h1:gw2FqACZmCGf/vyL3084SETn11nFWQWm4tV8TgDFhUE=
