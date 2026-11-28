@@ -204,8 +204,8 @@ func session(t *testing.T, pw *playwright.Playwright, browser string, isolate bo
 	d.until("the action in the terminal", 10*time.Second, func(p ui.Probe) bool {
 		return strings.Contains(p.Terminal, "# dashboard: wctr stop web")
 	})
-	// Networks: create one by name.
-	d.press("F6")
+	// Networks: create one by name. No F6 first: the view change moved the keys
+	// off the containers' hidden button, to the navigation (#34).
 	d.goTo("Networks")
 	p = d.until("networks view", 10*time.Second, func(p ui.Probe) bool { return p.View == "Networks" && len(p.Networks) > 0 })
 	if _, ok := p.Boxes["class.button"]; ok {

@@ -98,7 +98,7 @@ func TestEgressLogsAndAllowList(t *testing.T) {
 		t.Errorf("edge %q does not say destinations are logged", ed.Label)
 	}
 
-	quiet := ParseEgress([]byte(`{"Egress":{"Policy":"gateway","Gateway":{"Kind":"relay","State":"up"}}}`))
+	quiet := ParseEgress([]byte(`{"Egress":{"Policy":"gateway","Gateway":{"Kind":"relay","State":"up","Logs":false}}}`))
 	g = BuildGraph(TopoInput{Networks: []engine.Network{net("n", false, nil)}, Egress: map[string]Egress{"n": quiet}})
 	hub, _ = g.Node("n:n")
 	if text := strings.Join(hub.Detail, "\n"); !strings.Contains(text, "says it does not log") {

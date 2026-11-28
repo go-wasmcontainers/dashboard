@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -29,6 +30,12 @@ const (
 	standaloneCluster   = "standalone"
 	hostNodeID          = "g:host"
 	internetNodeID      = "g:internet"
+)
+
+// The ids of the two gateway nodes, for a view that draws each its own way.
+const (
+	HostNodeID     = hostNodeID
+	InternetNodeID = internetNodeID
 )
 
 // TopoKind is what a node of the topology stands for.
@@ -188,6 +195,9 @@ type Egress struct {
 	// Logs is the gateway's own statement that its operator logs destinations.
 	// The relay's retention is not reported by the engine.
 	Logs bool
+	// LogsKnown is whether the gateway made that statement in a form that could
+	// be read: when it did not, the view says nothing of logging.
+	LogsKnown bool
 	// Operator is the label the relay's operator set; DeniedHost and
 	// DeniedReason are the last destination the relay refused. All three come
 	// from the relay, a party outside the engine: they are plain text, cleaned
@@ -209,43 +219,36 @@ func ParseEgress(raw []byte) Egress {
 	if len(raw) == 0 || len(raw) > maxEgressJSON {
 		return Egress{}
 	}
-	var doc struct {
-		Egress *map[string]json.RawMessage `json:"Egress"`
-	}
-	if json.Unmarshal(raw, &doc) != nil || doc.Egress == nil {
+	top, ok := jsonFields(raw)
+	if !ok || !json.Valid(raw) {
 		return Egress{}
 	}
-	// Each field is decoded on its own: one of the wrong type is dropped, the
-	// others are kept.
-	f := *doc.Egress
-	var (
-		policy, reason string
-		g              *struct {
-			Kind     string `json:"Kind"`
-			Operator string `json:"Operator"`
-			State    string `json:"State"`
-			Logs     bool   `json:"Logs"`
-		}
-		allowlist []struct {
-			Host string `json:"Host"`
-			Port int    `json:"Port"`
-		}
-		counters struct {
-			LastDenied *struct {
-				Host   string `json:"Host"`
-				Reason string `json:"Reason"`
-			} `json:"LastDenied"`
-		}
-	)
-	_ = json.Unmarshal(f["Policy"], &policy)
-	_ = json.Unmarshal(f["Reason"], &reason)
-	_ = json.Unmarshal(f["Gateway"], &g)
-	_ = json.Unmarshal(f["Allowlist"], &allowlist)
-	_ = json.Unmarshal(f["Counters"], &counters)
-	d := counters.LastDenied
+	// Keys match without regard to case, and a key given twice does not hide the
+	// one that decodes. Each field is decoded on its own: one of the wrong type
+	// is dropped, the others are kept.
+	f, ok := firstObject(top["egress"])
+	if !ok {
+		return Egress{}
+	}
+	policy, _ := first[string](f["policy"])
+	reason, _ := first[string](f["reason"])
+	allowlist, _ := first[[]struct {
+		Host string `json:"Host"`
+		Port int    `json:"Port"`
+	}](f["allowlist"])
+	counters, _ := firstObject(f["counters"])
+	d, _ := first[*struct {
+		Host   string `json:"Host"`
+		Reason string `json:"Reason"`
+	}](counters["lastdenied"])
 	in := egressFields{policy: policy, reason: reason, allowed: len(allowlist)}
-	if g != nil {
-		in.hasGateway, in.gwKind, in.gwOperator, in.gwState, in.logs = true, g.Kind, g.Operator, g.State, g.Logs
+	if g, ok := firstObject(f["gateway"]); ok {
+		in.hasGateway = true
+		in.gwKind, _ = first[string](g["kind"])
+		in.gwOperator, _ = first[string](g["operator"])
+		in.gwState, _ = first[string](g["state"])
+		// Logs on its own: a Logs that is not a bool is not a statement.
+		in.logs, in.logsKnown = first[bool](g["logs"])
 	}
 	if d != nil {
 		in.hasDenied, in.deniedHost, in.deniedReason = true, d.Host, d.Reason
@@ -257,6 +260,57 @@ func ParseEgress(raw []byte) Egress {
 		in.allow = append(in.allow, fmt.Sprintf("%s:%d", Clean(a.Host, 64), a.Port))
 	}
 	return in.build()
+}
+
+// jsonFields splits a JSON object into its members by lower-cased key, in
+// document order, so a key repeated or spelled in another case keeps every
+// value. ok is false when raw is not an object. A document that breaks off
+// keeps what was read before.
+func jsonFields(raw []byte) (map[string][]json.RawMessage, bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, false
+	}
+	out := map[string][]json.RawMessage{}
+	for dec.More() {
+		k, err := dec.Token()
+		key, isKey := k.(string)
+		if err != nil || !isKey {
+			break
+		}
+		var v json.RawMessage
+		if dec.Decode(&v) != nil {
+			break
+		}
+		key = strings.ToLower(key)
+		out[key] = append(out[key], v)
+	}
+	return out, true
+}
+
+// firstObject is the fields of the first of the candidates that is an object.
+func firstObject(c []json.RawMessage) (map[string][]json.RawMessage, bool) {
+	for _, r := range c {
+		if f, ok := jsonFields(r); ok {
+			return f, true
+		}
+	}
+	return nil, false
+}
+
+// first decodes the first of the candidates that is a T and not null.
+func first[T any](c []json.RawMessage) (T, bool) {
+	for _, r := range c {
+		if string(bytes.TrimSpace(r)) == "null" {
+			continue
+		}
+		var v T
+		if json.Unmarshal(r, &v) == nil {
+			return v, true
+		}
+	}
+	var zero T
+	return zero, false
 }
 
 // EgressOf is the Egress of a network the engine described with a typed
@@ -271,7 +325,7 @@ func EgressOf(n engine.Network) (e Egress, ok bool) {
 	}
 	in := egressFields{policy: t.Policy, reason: t.Reason, allowed: len(t.Allowlist)}
 	if g := t.Gateway; g != nil {
-		in.hasGateway, in.gwKind, in.gwOperator, in.gwState, in.logs = true, g.Kind, g.Operator, g.State, g.Logs
+		in.hasGateway, in.gwKind, in.gwOperator, in.gwState, in.logs, in.logsKnown = true, g.Kind, g.Operator, g.State, g.Logs, true
 	}
 	if d := t.Counters.LastDenied; d != nil {
 		in.hasDenied, in.deniedHost, in.deniedReason = true, d.Host, d.Reason
@@ -293,12 +347,12 @@ type egressFields struct {
 	gwKind, gwOperator, gwState string
 	hasDenied                   bool
 	deniedHost, deniedReason    string
-	logs                        bool
+	logs, logsKnown             bool
 	allow                       []string
 }
 
 func (in egressFields) build() Egress {
-	e := Egress{Policy: Clean(strings.ToLower(in.policy), 16), Reason: Clean(in.reason, 120), Allowed: in.allowed, AllowList: in.allow, Logs: in.logs}
+	e := Egress{Policy: Clean(strings.ToLower(in.policy), 16), Reason: Clean(in.reason, 120), Allowed: in.allowed, AllowList: in.allow, Logs: in.logs, LogsKnown: in.logsKnown}
 	if in.hasGateway {
 		e.GatewayKind, e.GatewayState = Clean(in.gwKind, 32), Clean(strings.ToLower(in.gwState), 32)
 		e.Operator = RelayText(in.gwOperator, maxRelayText)
@@ -634,7 +688,7 @@ func networkDetail(nw engine.Network, e Egress, members int, egress string) []st
 	}
 	if e.Logs {
 		out = append(out, "Privacy: the relay's operator logs the destinations of this network (retention not reported)")
-	} else if e.GatewayKind != "" {
+	} else if e.GatewayKind != "" && e.LogsKnown {
 		out = append(out, "Privacy: the relay says it does not log destinations (its own statement, not checked)")
 	}
 	for _, a := range e.AllowList {
@@ -702,6 +756,9 @@ func egressEdge(nw engine.Network, e Egress) TopoEdge {
 		te.State, te.Label = EdgeDenied, "no egress"
 	default:
 		te.State, te.Label = EdgeDenied, "no egress reported"
+	}
+	if e.Logs && e.Policy != "gateway" {
+		te.Label += ", destinations logged"
 	}
 	if e.Reason != "" && te.State != EdgeNormal {
 		te.Label += ": " + e.Reason

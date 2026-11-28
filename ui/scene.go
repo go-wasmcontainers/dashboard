@@ -9,6 +9,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/go-opentype/fonts/jetbrainsmono"
@@ -247,6 +248,12 @@ func (s *Scene) build() {
 	a.View.Subscribe(func(v int) {
 		s.nav.Selected().Set(v)
 		s.layout()
+		// The keys follow the view: a focus on a widget of the view that was just
+		// hidden would take them with it. The navigation is always shown, and
+		// is where Alt+<n> and F6 work from at once.
+		if s.focus != nil && !slices.Contains(s.widgets(), s.focus) {
+			s.setFocus(s.nav)
+		}
 		inv()
 	})
 
