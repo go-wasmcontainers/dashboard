@@ -82,7 +82,7 @@ func TestSurfaceAudioControls(t *testing.T) {
 		m bool
 	}
 	var calls []call
-	s.SetAudio(func(c string, v float64, m bool) { calls = append(calls, call{c, v, m}) })
+	s.SetAudio(func(c string, v float64, m bool) bool { calls = append(calls, call{c, v, m}); return true })
 	s.Open(1, "aaaa", 1, 64, 48)
 	s.Open(2, "aaaa", 1, 64, 48)
 	s.Open(3, "bbbb", 2, 64, 48)

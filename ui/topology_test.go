@@ -135,6 +135,30 @@ func TestTopologyCompose(t *testing.T) {
 	}
 }
 
+// Refusals and previews reach the view: an import or export error and a sound
+// refusal are on the summary line, a command's preview is in the detail pane.
+func TestTopologyShowsRefusalsAndPreview(t *testing.T) {
+	r := newRig(t)
+	r.app.Topology.SetCompose(func() {}, func(string) {})
+	r.app.Topology.ComposeFailed("import: refused")
+	if got := r.s.tMsg.Text().Get(); !strings.Contains(got, "import: refused") {
+		t.Errorf("summary = %q", got)
+	}
+	r.app.Topology.ComposeImported("shop") // a good import clears the error
+	if got := r.s.tMsg.Text().Get(); strings.Contains(got, "refused") {
+		t.Errorf("summary = %q", got)
+	}
+	r.app.Sound.SetAudio(func(string, float64, bool) bool { return false })
+	r.app.Sound.ToggleMute("c1")
+	if got := r.s.tMsg.Text().Get(); !strings.Contains(got, "page refused") {
+		t.Errorf("a refused mute is not shown: %q", got)
+	}
+	r.app.Topology.ComposeDone([]string{"compose", "-p", "shop", "config"}, "name: shop")
+	if !slices.Contains(r.s.tDetail.Items, "name: shop") {
+		t.Errorf("preview not in the detail pane: %v", r.s.tDetail.Items)
+	}
+}
+
 // A stopped container is drawn grey; a running one and a network keep the
 // palette.
 func TestTopologyNodeColor(t *testing.T) {

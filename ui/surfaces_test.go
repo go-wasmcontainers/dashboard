@@ -59,7 +59,7 @@ func TestSurfacePaneSound(t *testing.T) {
 		m bool
 	}
 	var calls []call
-	sf.SetAudio(func(c string, v float64, m bool) { calls = append(calls, call{c, v, m}) })
+	sf.SetAudio(func(c string, v float64, m bool) bool { calls = append(calls, call{c, v, m}); return true })
 	sf.Open(1, "cafe", 7, 640, 480)
 	r.app.View.Set(vm.ViewSurfaces)
 	r.frame()

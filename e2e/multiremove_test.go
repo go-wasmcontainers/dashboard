@@ -115,8 +115,8 @@ func TestMultiRemove(t *testing.T) {
 		return strings.HasPrefix(p.Status[0], "engine ") && !strings.HasPrefix(p.Status[0], "engine: ")
 	})
 
-	// Four of each, made from the terminal (Alt+5).
-	d.press("Alt+5")
+	// Four of each, made from the terminal.
+	d.goTo("Terminal")
 	d.until("terminal view", 5*time.Second, func(p ui.Probe) bool { return p.View == "Terminal" })
 	d.click("terminal")
 	for _, n := range []string{"k1", "k2", "k3", "k4"} {
@@ -133,7 +133,8 @@ func TestMultiRemove(t *testing.T) {
 	}
 
 	// Containers.
-	d.press("F6", "Alt+1") // the terminal keeps the keys: F6 leaves it
+	d.press("F6") // the terminal keeps the keys: F6 leaves it
+	d.goTo("Containers")
 	p := d.until("four containers", 30*time.Second, func(p ui.Probe) bool {
 		return p.View == "Containers" && len(p.Containers) == 4 && p.Boxes["containers.row.3"].H > 0
 	})
@@ -147,7 +148,7 @@ func TestMultiRemove(t *testing.T) {
 	}
 
 	// Images: clock, extra and fail go; hello (the containers' image) stays.
-	d.press("Alt+2")
+	d.goTo("Images")
 	p = d.until("four images", 30*time.Second, func(p ui.Probe) bool {
 		return p.View == "Images" && len(p.Images) == 4 && p.Boxes["images.row.3"].H > 0
 	})
@@ -159,7 +160,7 @@ func TestMultiRemove(t *testing.T) {
 	}
 
 	// Volumes.
-	d.press("Alt+3")
+	d.goTo("Volumes")
 	p = d.until("four volumes", 30*time.Second, func(p ui.Probe) bool {
 		return p.View == "Volumes" && len(p.VolumeNames) == 4 && p.Boxes["volumes.row.3"].H > 0
 	})
@@ -171,7 +172,7 @@ func TestMultiRemove(t *testing.T) {
 	}
 
 	// Networks (the engine's own networks, if any, stay).
-	d.press("Alt+4")
+	d.goTo("Networks")
 	p = d.until("the networks", 30*time.Second, func(p ui.Probe) bool {
 		return p.View == "Networks" && slices.Contains(p.Networks, "n4") && p.Boxes["networks.row.0"].H > 0
 	})

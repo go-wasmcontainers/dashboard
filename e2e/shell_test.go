@@ -67,7 +67,7 @@ func shellSession(t *testing.T, pw *playwright.Playwright, browser string) {
 	d.until("the dashboard", 90*time.Second, func(p ui.Probe) bool {
 		return strings.HasPrefix(p.Status[0], "engine ") && !strings.HasPrefix(p.Status[0], "engine: ")
 	})
-	d.press("Alt+5")
+	d.goTo("Terminal")
 	d.until("terminal view", 5*time.Second, func(p ui.Probe) bool { return p.View == "Terminal" })
 	d.click("terminal")
 	d.typeKeys("wctr run -d --name box ghcr.io/go-wasmcontainers/shell:0.2.0 sleep 3600")
@@ -77,7 +77,8 @@ func shellSession(t *testing.T, pw *playwright.Playwright, browser string) {
 	})
 	// F6 leaves the terminal (which keeps Alt+keys while focused), Alt+1
 	// shows the containers, F6 reaches their table, ArrowDown selects box.
-	d.press("F6", "Alt+1")
+	d.press("F6")
+	d.goTo("Containers")
 	d.until("containers view", 5*time.Second, func(p ui.Probe) bool { return p.View == "Containers" })
 	d.press("F6", "ArrowDown")
 	d.until("box selected", 10*time.Second, func(p ui.Probe) bool { return p.Selected != "" })

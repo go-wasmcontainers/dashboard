@@ -59,6 +59,8 @@ jobs:
           - { target: FuzzServer, pkg: ./bridge }
           - { target: FuzzInspectTree, pkg: ./vm }
           - { target: FuzzClean, pkg: ./vm }
+          - { target: FuzzParseEgress, pkg: ./vm }
+          - { target: FuzzParsePorts, pkg: ./vm }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

@@ -206,13 +206,13 @@ func TestParseEgress(t *testing.T) {
 		`{"Name":"x"}`:                 {},
 		`{"Egress":null}`:              {},
 		`{"Egress":{"Policy":"NONE"}}`: {Policy: "none"},
-		`{"Egress":{"Policy":"gateway","Reason":"r","Gateway":{"Kind":"relay","State":"Up"},"Allowlist":[{"Host":"a","Port":1},{"Host":"b"}]}}`: {Policy: "gateway", Reason: "r", GatewayKind: "relay", GatewayState: "up", Allowed: 2},
+		`{"Egress":{"Policy":"gateway","Reason":"r","Gateway":{"Kind":"relay","State":"Up"},"Allowlist":[{"Host":"a","Port":1},{"Host":"b"}]}}`: {Policy: "gateway", Reason: "r", GatewayKind: "relay", GatewayState: "up", Allowed: 2, AllowList: []string{"a:1", "b:0"}},
 		// The shape engine PR #95 serves: Operator and LastDenied come from
 		// the relay, so they are kept as plain text only.
 		`{"Egress":{"Policy":"gateway","Gateway":{"Kind":"relay","Operator":"<b>Lab</b>","State":"up"},"Counters":{"LastDenied":{"Host":"x.example.org","Reason":"sni","Time":"2026-11-28T10:00:00Z"}}}}`: {Policy: "gateway", GatewayKind: "relay", GatewayState: "up", Operator: "<b>Lab</b>", DeniedHost: "x.example.org", DeniedReason: "sni"},
 	}
 	for in, want := range cases {
-		if got := ParseEgress([]byte(in)); got != want {
+		if got := ParseEgress([]byte(in)); !reflect.DeepEqual(got, want) {
 			t.Errorf("ParseEgress(%q) = %+v, want %+v", in, got, want)
 		}
 	}
@@ -240,11 +240,11 @@ func TestGraphEgressRelayText(t *testing.T) {
 			Operator: "Lab IT", Allowed: 1, DeniedHost: "x.example.org", DeniedReason: "sni"}},
 	})
 	e, _ := edgeByID(g, "e:class")
-	if e.Label != "egress via relay gateway (Lab IT), 1 hosts allowed" || e.State != EdgeNormal {
+	if e.Label != `egress via relay gateway (operator label "Lab IT"), 1 hosts allowed` || e.State != EdgeNormal {
 		t.Errorf("edge = %+v", e)
 	}
 	n, _ := g.Node("n:class")
-	if !reflect.DeepEqual(n.Badges, []string{`last denied (unverified text) "x.example.org" (sni)`}) {
+	if !reflect.DeepEqual(n.Badges, []string{`last denied (unverified text) "x.example.org" reason "sni"`}) {
 		t.Errorf("hub badges = %v", n.Badges)
 	}
 }
@@ -252,7 +252,7 @@ func TestGraphEgressRelayText(t *testing.T) {
 // Bomb: an oversized inspect document is refused, not decoded.
 func TestParseEgressBomb(t *testing.T) {
 	big := `{"Egress":{"Policy":"gateway","Allowlist":[` + strings.Repeat(`{"Host":"a"},`, maxEgressJSON/10) + `{}]}}`
-	if e := ParseEgress([]byte(big)); e != (Egress{}) {
+	if e := ParseEgress([]byte(big)); !reflect.DeepEqual(e, Egress{}) {
 		t.Errorf("an oversized document was decoded: %+v", e)
 	}
 }
@@ -357,7 +357,7 @@ func TestGraphExactIDBeatsPrefix(t *testing.T) {
 
 // A document that is not valid JSON yields nothing, even if a prefix decoded.
 func TestParseEgressInvalidTail(t *testing.T) {
-	if e := ParseEgress([]byte(`{"Egress":{"Policy":"none"}} trailing`)); e != (Egress{}) {
+	if e := ParseEgress([]byte(`{"Egress":{"Policy":"none"}} trailing`)); !reflect.DeepEqual(e, Egress{}) {
 		t.Errorf("decoded an invalid document: %+v", e)
 	}
 }
@@ -432,14 +432,48 @@ func TestTopologyDetailAndCompose(t *testing.T) {
 		t.Error("export needs a compose project")
 	}
 	a.Topology.Export()
+	if !strings.Contains(a.Topology.Status.Get(), "nothing is imported yet") {
+		t.Errorf("a refused export says nothing: %q", a.Topology.Status.Get())
+	}
 	a.Topology.Selected.Set("node:c:aaaa1111")
 	a.Topology.Import()
+	// D3: before any import has loaded "shop", its export is refused.
+	a.Topology.Export()
+	if a.Topology.CanExport() || len(exported) != 0 {
+		t.Fatalf("export offered for a project no import loaded: %v", exported)
+	}
+	a.Topology.ComposeImported("other")
+	a.Topology.Export()
+	if len(exported) != 0 || !strings.Contains(a.Topology.Status.Get(), `"other"`) {
+		t.Errorf("exported %v, status %q", exported, a.Topology.Status.Get())
+	}
+	a.Topology.ComposeImported("shop")
+	if a.Topology.Status.Get() != "" || !a.Topology.CanExport() {
+		t.Error("an import did not clear the status or enable export")
+	}
 	a.Topology.Export()
 	if imported != 1 || len(exported) != 1 || exported[0] != "shop" {
 		t.Errorf("imported %d, exported %v", imported, exported)
 	}
-	if a.LastCommand.Get() != "wctr compose -p shop config" {
+	// P2: only a command that ran is the last command.
+	if a.LastCommand.Get() != "" {
+		t.Errorf("last command %q set before anything ran", a.LastCommand.Get())
+	}
+	a.Topology.ComposeDone([]string{"compose", "-p", "shop", "config"}, "name: shop\n"+strings.Repeat("x\n", 60))
+	if a.LastCommand.Get() != Line("compose", "-p", "shop", "config") {
 		t.Errorf("last command = %q", a.LastCommand.Get())
+	}
+	if p := a.Topology.Preview.Get(); !strings.HasPrefix(p, "name: shop") || strings.Count(p, "\n") > 41 {
+		t.Errorf("preview = %q", p)
+	}
+	// H7: a project name that is hostile is escaped in the command shown.
+	a.Topology.ComposeDone([]string{"compose", "-p", "a b;c", "config"}, "")
+	if got := a.LastCommand.Get(); got != Line("compose", "-p", "a b;c", "config") || !strings.Contains(got, "'a b;c'") {
+		t.Errorf("unescaped command %q", got)
+	}
+	a.Topology.ComposeFailed("boom\x1b[31m")
+	if strings.ContainsRune(a.Topology.Status.Get(), 0x1b) {
+		t.Error("status not cleaned")
 	}
 }
 
@@ -549,7 +583,7 @@ func TestEgressOfTypedMatchesRaw(t *testing.T) {
 		t.Fatal("a typed egress was not used")
 	}
 	raw, _ := json.Marshal(map[string]any{"Egress": n.Egress})
-	if want := ParseEgress(raw); got != want {
+	if want := ParseEgress(raw); !reflect.DeepEqual(got, want) {
 		t.Errorf("typed %+v, raw %+v", got, want)
 	}
 	if got.Allowed != 2 || got.Policy != "gateway" || got.GatewayState != "up" {
@@ -607,7 +641,7 @@ func TestRelayTextMarkupStaysLiteral(t *testing.T) {
 	}
 	g := BuildGraph(TopoInput{Networks: []engine.Network{net("n", false, nil)}, Egress: map[string]Egress{"n": e}})
 	hub, _ := g.Node("n:n")
-	if want := `last denied (unverified text) "<script>x</script>" ("><b>)`; len(hub.Badges) != 1 || hub.Badges[0] != want {
+	if want := `last denied (unverified text) "<script>x</script>" reason "\"><b>"`; len(hub.Badges) != 1 || hub.Badges[0] != want {
 		t.Errorf("badges = %q, want %q", hub.Badges, want)
 	}
 }

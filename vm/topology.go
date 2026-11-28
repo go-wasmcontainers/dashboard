@@ -88,19 +88,65 @@ type Graph struct {
 	Edges    []TopoEdge
 	// Note says what was left out (a bound was reached), or "".
 	Note string
+	// members are the containers attached to each network, by network name:
+	// kept apart from the edges, so the bound on edges never changes who is a member.
+	members map[string][]string
 }
 
 // NetworkMembers are the full IDs of the containers attached to a network.
 func (g Graph) NetworkMembers(network string) []string {
-	var out []string
-	hub := "n:" + network
-	for _, e := range g.Edges {
-		if e.To == hub && strings.HasPrefix(e.ID, "a:") {
-			out = append(out, strings.TrimPrefix(e.From, "c:"))
-		}
-	}
+	out := append([]string(nil), g.members[network]...)
 	sort.Strings(out)
 	return out
+}
+
+// edgeRank orders what is kept when the edges pass maxTopoEdges: the way out
+// first, then what comes in (published ports, host network), then attachments.
+func edgeRank(id string) int {
+	switch {
+	case strings.HasPrefix(id, "e:"):
+		return 0
+	case strings.HasPrefix(id, "p:"), strings.HasPrefix(id, "h:"):
+		return 1
+	}
+	return 2
+}
+
+// boundEdges keeps at most maxTopoEdges edges, by edgeRank and then in order,
+// and says in a note how many it left out of each kind.
+func boundEdges(edges []TopoEdge) ([]TopoEdge, string) {
+	if len(edges) <= maxTopoEdges {
+		return edges, ""
+	}
+	var left [3]int
+	budget := maxTopoEdges
+	keep := make([]bool, len(edges))
+	for rank := 0; rank < 3; rank++ {
+		for i, e := range edges {
+			if edgeRank(e.ID) != rank {
+				continue
+			}
+			if budget > 0 {
+				keep[i] = true
+				budget--
+			} else {
+				left[rank]++
+			}
+		}
+	}
+	out := make([]TopoEdge, 0, maxTopoEdges)
+	for i, e := range edges {
+		if keep[i] {
+			out = append(out, e)
+		}
+	}
+	var parts []string
+	for rank, what := range []string{"egress", "published-port or host-network", "attachment"} {
+		if left[rank] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s edges", left[rank], what))
+		}
+	}
+	return out, fmt.Sprintf("%d of %d edges drawn (%s not drawn); networks still mute all their members", len(out), len(edges), strings.Join(parts, ", "))
 }
 
 // ProjectMembers are the full IDs of the containers of a compose project (or
@@ -135,8 +181,13 @@ type Egress struct {
 	Reason string
 	// GatewayKind and GatewayState describe the gateway of a "gateway" policy.
 	GatewayKind, GatewayState string
-	// Allowed is how many host:port pairs the allowlist holds.
-	Allowed int
+	// Allowed is how many host:port pairs the allowlist holds; AllowList is the
+	// first maxAllowShown of them, as "host:port" (cleaned, bounded).
+	Allowed   int
+	AllowList []string
+	// Logs is the gateway's own statement that its operator logs destinations.
+	// The relay's retention is not reported by the engine.
+	Logs bool
 	// Operator is the label the relay's operator set; DeniedHost and
 	// DeniedReason are the last destination the relay refused. All three come
 	// from the relay, a party outside the engine: they are plain text, cleaned
@@ -146,6 +197,9 @@ type Egress struct {
 
 // maxRelayText bounds each string the relay supplies (operator, denial).
 const maxRelayText = 48
+
+// maxAllowShown bounds the allowlist entries the view lists.
+const maxAllowShown = 16
 
 // ParseEgress decodes the Egress object of a network inspect document. It
 // never fails: a document that is empty, oversized, not JSON, or without an
@@ -163,9 +217,13 @@ func ParseEgress(raw []byte) Egress {
 				Kind     string `json:"Kind"`
 				Operator string `json:"Operator"`
 				State    string `json:"State"`
+				Logs     bool   `json:"Logs"`
 			} `json:"Gateway"`
-			Allowlist []json.RawMessage `json:"Allowlist"`
-			Counters  struct {
+			Allowlist []struct {
+				Host string `json:"Host"`
+				Port int    `json:"Port"`
+			} `json:"Allowlist"`
+			Counters struct {
 				LastDenied *struct {
 					Host   string `json:"Host"`
 					Reason string `json:"Reason"`
@@ -180,10 +238,16 @@ func ParseEgress(raw []byte) Egress {
 	d := doc.Egress.Counters.LastDenied
 	in := egressFields{policy: doc.Egress.Policy, reason: doc.Egress.Reason, allowed: len(doc.Egress.Allowlist)}
 	if g != nil {
-		in.hasGateway, in.gwKind, in.gwOperator, in.gwState = true, g.Kind, g.Operator, g.State
+		in.hasGateway, in.gwKind, in.gwOperator, in.gwState, in.logs = true, g.Kind, g.Operator, g.State, g.Logs
 	}
 	if d != nil {
 		in.hasDenied, in.deniedHost, in.deniedReason = true, d.Host, d.Reason
+	}
+	for i, a := range doc.Egress.Allowlist {
+		if i >= maxAllowShown {
+			break
+		}
+		in.allow = append(in.allow, fmt.Sprintf("%s:%d", Clean(a.Host, 64), a.Port))
 	}
 	return in.build()
 }
@@ -200,10 +264,16 @@ func EgressOf(n engine.Network) (e Egress, ok bool) {
 	}
 	in := egressFields{policy: t.Policy, reason: t.Reason, allowed: len(t.Allowlist)}
 	if g := t.Gateway; g != nil {
-		in.hasGateway, in.gwKind, in.gwOperator, in.gwState = true, g.Kind, g.Operator, g.State
+		in.hasGateway, in.gwKind, in.gwOperator, in.gwState, in.logs = true, g.Kind, g.Operator, g.State, g.Logs
 	}
 	if d := t.Counters.LastDenied; d != nil {
 		in.hasDenied, in.deniedHost, in.deniedReason = true, d.Host, d.Reason
+	}
+	for i, a := range t.Allowlist {
+		if i >= maxAllowShown {
+			break
+		}
+		in.allow = append(in.allow, fmt.Sprintf("%s:%d", Clean(a.Host, 64), a.Port))
 	}
 	return in.build(), true
 }
@@ -216,10 +286,12 @@ type egressFields struct {
 	gwKind, gwOperator, gwState string
 	hasDenied                   bool
 	deniedHost, deniedReason    string
+	logs                        bool
+	allow                       []string
 }
 
 func (in egressFields) build() Egress {
-	e := Egress{Policy: Clean(strings.ToLower(in.policy), 16), Reason: Clean(in.reason, 120), Allowed: in.allowed}
+	e := Egress{Policy: Clean(strings.ToLower(in.policy), 16), Reason: Clean(in.reason, 120), Allowed: in.allowed, AllowList: in.allow, Logs: in.logs}
 	if in.hasGateway {
 		e.GatewayKind, e.GatewayState = Clean(in.gwKind, 32), Clean(strings.ToLower(in.gwState), 32)
 		e.Operator = RelayText(in.gwOperator, maxRelayText)
@@ -424,11 +496,8 @@ func BuildGraph(in TopoInput) Graph {
 		return nil
 	}
 
-	addEdge := func(e TopoEdge) {
-		if len(g.Edges) < maxTopoEdges {
-			g.Edges = append(g.Edges, e)
-		}
-	}
+	addEdge := func(e TopoEdge) { g.Edges = append(g.Edges, e) }
+	g.members = map[string][]string{}
 
 	needHost, needInternet := false, false
 	// Networks: a hub each, an attachment edge per member, an egress edge.
@@ -448,6 +517,7 @@ func BuildGraph(in TopoInput) Graph {
 				continue
 			}
 			members++
+			g.members[nw.Name] = append(g.members[nw.Name], x.sum.ID)
 			x.nets = append(x.nets, strings.TrimSpace(Clean(nw.Name, 64)+" "+Clean(nw.Containers[id].IPv4Address, 64)))
 			addEdge(TopoEdge{ID: "a:" + nw.Name + ":" + x.sum.ID, From: x.node.ID, To: hub.ID, Label: Clean(nw.Containers[id].IPv4Address, 64)})
 		}
@@ -455,7 +525,7 @@ func BuildGraph(in TopoInput) Graph {
 		if eg.DeniedHost != "" {
 			d := "last denied (unverified text) " + quoteASCII(eg.DeniedHost)
 			if eg.DeniedReason != "" {
-				d += " (" + eg.DeniedReason + ")"
+				d += " reason " + quoteASCII(eg.DeniedReason)
 			}
 			g.Nodes[hubAt].Badges = []string{d}
 		}
@@ -514,6 +584,11 @@ func BuildGraph(in TopoInput) Graph {
 	for _, x := range order {
 		g.Nodes = append(g.Nodes, x.node)
 	}
+	var edgeNote string
+	g.Edges, edgeNote = boundEdges(g.Edges)
+	if edgeNote != "" {
+		notes = append(notes, edgeNote)
+	}
 	g.Note = strings.Join(notes, "; ")
 	return g
 }
@@ -548,10 +623,27 @@ func networkDetail(nw engine.Network, e Egress, members int, egress string) []st
 		out = append(out, "Gateway "+e.GatewayKind+" "+e.GatewayState)
 	}
 	if e.Operator != "" {
-		out = append(out, "Operator "+e.Operator)
+		out = append(out, "Operator label (unverified text set by the relay's operator) "+quoteASCII(e.Operator))
+	}
+	if e.GatewayKind != "" {
+		if e.Logs {
+			out = append(out, "Privacy: the relay's operator logs the destinations of this network (retention not reported)")
+		} else {
+			out = append(out, "Privacy: the relay says it does not log destinations (its own statement, not checked)")
+		}
+	}
+	for _, a := range e.AllowList {
+		out = append(out, "Allowed "+quoteASCII(a))
+	}
+	if e.Allowed > len(e.AllowList) {
+		out = append(out, fmt.Sprintf("Allowed +%d more", e.Allowed-len(e.AllowList)))
 	}
 	if e.DeniedHost != "" {
-		out = append(out, "Last denied (unverified text sent by the relay, not a checked host name) "+quoteASCII(e.DeniedHost)+" "+e.DeniedReason)
+		d := "Last denied (unverified text sent by the relay, not a checked host name) " + quoteASCII(e.DeniedHost)
+		if e.DeniedReason != "" {
+			d += " reason " + quoteASCII(e.DeniedReason)
+		}
+		out = append(out, d)
 	}
 	return out
 }
@@ -585,10 +677,13 @@ func egressEdge(nw engine.Network, e Egress) TopoEdge {
 			te.Label = "egress via " + e.GatewayKind + " gateway"
 		}
 		if e.Operator != "" {
-			te.Label += " (" + e.Operator + ")"
+			te.Label += " (operator label " + quoteASCII(e.Operator) + ")"
 		}
 		if e.Allowed > 0 {
 			te.Label += fmt.Sprintf(", %d hosts allowed", e.Allowed)
+		}
+		if e.Logs {
+			te.Label += ", destinations logged"
 		}
 		if e.GatewayState != "" && e.GatewayState != "up" && e.GatewayState != "running" && e.GatewayState != "ready" {
 			te.State = EdgeIdle
@@ -619,12 +714,18 @@ type Topology struct {
 	// Selected is "node:<id>", "edge:<id>" or "".
 	Selected *mvvm.Observable[string]
 
+	// Status is the last compose import/export refusal or error ("" when none);
+	// Preview is the output of the last command that ran (the `compose config`).
+	Status, Preview *mvvm.Observable[string]
+
 	importFn func()
 	exportFn func(project string)
+	imported string // the project of the current import
 }
 
 func newTopology(a *App) *Topology {
-	return &Topology{app: a, Revision: mvvm.NewObservable(0), Selected: mvvm.NewObservable("")}
+	return &Topology{app: a, Revision: mvvm.NewObservable(0), Selected: mvvm.NewObservable(""),
+		Status: mvvm.NewObservable(""), Preview: mvvm.NewObservable("")}
 }
 
 // SetCompose sets how the page imports and exports a compose file: imp opens
@@ -638,23 +739,74 @@ func (t *Topology) SetCompose(imp func(), exp func(project string)) {
 // CanImport and CanExport say whether the page provides the compose transfer.
 func (t *Topology) CanImport() bool { return t.importFn != nil }
 
-// CanExport says whether a compose export is possible for the selection.
-func (t *Topology) CanExport() bool { return t.exportFn != nil && t.SelectedProject() != "" }
+// CanExport says whether a compose export is possible for the selection: only
+// the project loaded by the current import can be exported, because the files
+// the page holds are that project's, whatever else runs.
+func (t *Topology) CanExport() bool {
+	p := t.SelectedProject()
+	return t.exportFn != nil && p != "" && p == t.imported
+}
 
 // Import asks the page to pick a compose file.
 func (t *Topology) Import() {
 	if t.importFn != nil {
-		t.app.LastCommand.Set("wctr compose config -f <file>")
 		t.importFn()
 	}
 }
 
-// Export asks the page to download the selected project's compose file.
+// Export asks the page to download the selected project's compose file; it
+// says why not when the selection is not the imported project.
 func (t *Topology) Export() {
-	if p := t.SelectedProject(); p != "" && t.exportFn != nil {
-		t.app.LastCommand.Set("wctr compose -p " + p + " config")
-		t.exportFn(p)
+	if t.exportFn == nil {
+		return
 	}
+	if !t.CanExport() {
+		t.ComposeFailed("export: select a container of the imported project" + t.importedHint())
+		return
+	}
+	t.exportFn(t.SelectedProject())
+}
+
+func (t *Topology) importedHint() string {
+	if t.imported == "" {
+		return " (nothing is imported yet)"
+	}
+	return " " + quoteASCII(t.imported)
+}
+
+// ComposeImported records the project the current import loaded ("" when the
+// files name none): the only one Export serves.
+func (t *Topology) ComposeImported(project string) {
+	t.imported = Clean(project, 64)
+	t.Status.Set("")
+	t.Revision.Set(t.Revision.Get() + 1)
+}
+
+// ComposeFailed shows an import or export refusal or error.
+func (t *Topology) ComposeFailed(msg string) {
+	t.Status.Set(Clean(msg, 300))
+	t.Revision.Set(t.Revision.Get() + 1)
+}
+
+// ComposeDone records a wctr command the page really ran (the one the
+// dashboard shows as the last command) and its output as a bounded preview.
+func (t *Topology) ComposeDone(args []string, output string) {
+	t.app.LastCommand.Set(Line(args...))
+	t.Status.Set("")
+	t.Preview.Set(previewText(output))
+	t.Revision.Set(t.Revision.Get() + 1)
+}
+
+// previewText bounds a command's output for display: 40 lines of 200 runes.
+func previewText(s string) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > 40 {
+		lines = append(lines[:40], "…")
+	}
+	for i, l := range lines {
+		lines[i] = Clean(l, 200)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // SelectedNode is the node the selection names.

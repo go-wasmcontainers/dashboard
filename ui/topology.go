@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/go-widgets/toolkit"
 
@@ -15,6 +16,12 @@ const (
 )
 
 // topoSoundToggle is the id of the speaker toggle of a node.
+//
+// TOOLKIT GAP (v0.414.0, graphview_badges.go:15,84): a GraphToggle is drawn as
+// TEXT (Glyph through the font), GraphBadge likewise, and GraphNode has no icon
+// field, so the speaker cannot be an Iconoir icon and hubs and gateways cannot
+// carry one (design section 6). The letter "S" stays until GraphView draws an
+// icon name through the iconoir package (iconoir.Draw); nothing is hand-drawn.
 const topoSoundToggle = "sound"
 
 // okabeIto is the colour-blind-safe categorical palette (Okabe and Ito, 2008),
@@ -87,7 +94,17 @@ func (s *Scene) buildTopology() {
 	s.tExport = button("Export compose", t.Export)
 
 	s.tMsg = toolkit.NewLabel("")
-	bindLabel(s.tMsg, func() string { return topologySummary(t.Graph()) }, inv, t.Revision)
+	// The refusals and errors of an import, an export or a sound change are part
+	// of the summary line: they are never only in the console.
+	bindLabel(s.tMsg, func() string {
+		line := topologySummary(t.Graph())
+		for _, m := range []string{t.Status.Get(), a.Sound.Refused.Get()} {
+			if m != "" {
+				line += " | " + m
+			}
+		}
+		return line
+	}, inv, t.Revision, t.Status, a.Sound.Refused)
 	s.tDetail = toolkit.NewListBox(nil)
 	// The layout is the toolkit's: the summary line over the graph and its
 	// detail pane (a 68/32 split). The boxes only place their children; the
@@ -104,6 +121,7 @@ func (s *Scene) buildTopology() {
 	a.Sound.Revision.SubscribeChanged(refresh)
 	a.Sound.All.SubscribeChanged(refresh)
 	t.Selected.SubscribeChanged(func() { s.syncTopologyDetail(); s.updateTopologyButtons(); inv() })
+	t.Preview.SubscribeChanged(func() { s.syncTopologyDetail(); inv() })
 	s.syncTopology()
 	s.updateTopologyButtons()
 }
@@ -249,6 +267,10 @@ func sameNode(a, b toolkit.GraphNode) bool {
 // syncTopologyDetail fills the detail pane with the selection's text.
 func (s *Scene) syncTopologyDetail() {
 	lines := s.app.Topology.Detail()
+	if len(lines) == 0 && s.app.Topology.Preview.Get() != "" {
+		// No selection: the output of the last `wctr compose config` that ran.
+		lines = append([]string{"Last compose config"}, strings.Split(s.app.Topology.Preview.Get(), "\n")...)
+	}
 	if len(lines) == 0 {
 		lines = []string{"Select a node or an edge to see what it is."}
 	}

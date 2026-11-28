@@ -1,8 +1,15 @@
 package vm
 
 import (
+	"context"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/go-wasmcontainers/engine/container"
+	"github.com/go-wasmcontainers/engine/rootfs"
+	"github.com/go-wasmcontainers/engine/runtime"
 )
 
 // The store is shared: a level set on a container with no pane shows on the
@@ -36,7 +43,7 @@ func TestSoundGroupAndGlobalMute(t *testing.T) {
 	}
 	var calls []call
 	var globals []bool
-	s.SetAudio(func(c string, v float64, m bool) { calls = append(calls, call{c, v, m}) })
+	s.SetAudio(func(c string, v float64, m bool) bool { calls = append(calls, call{c, v, m}); return true })
 	s.SetGlobalAudio(func(m bool) { globals = append(globals, m) })
 	revs := 0
 	s.Revision.SubscribeChanged(func() { revs++ })
@@ -113,17 +120,118 @@ func TestSoundActive(t *testing.T) {
 	}
 }
 
-// The audio key is the container's full ID: the engine plays a container's
-// sound under runtime.Spec.ID, which container.go sets from c.id, and that is
-// the ID the API returns on create and lists. The topology keys its speakers
-// by the same ID, so a node's mute reaches the page's gain node.
+// idProbe is an executor that records the runtime.Spec.ID the engine gives a
+// started container: the key its sound is played under.
+type idProbe struct{ got chan string }
+
+type doneProc struct{}
+
+func (doneProc) Wait() runtime.Result { return runtime.Result{} }
+func (doneProc) Kill()                {}
+
+func (p idProbe) Start(_ context.Context, spec runtime.Spec) (runtime.Process, error) {
+	p.got <- spec.ID
+	return doneProc{}, nil
+}
+func (idProbe) Close(context.Context) error { return nil }
+
+// The audio key is the container's full ID, taken from the REAL engine: a
+// container created and started by the engine's manager is run under
+// runtime.Spec.ID (container.go:687, from c.id), the ID its snapshot (the
+// inspect and list documents) carries (container.go:263). A mute keyed by that
+// ID reaches the page's gain node of the same key.
 func TestAudioKeyIsTheContainerID(t *testing.T) {
+	probe := idProbe{got: make(chan string, 1)}
+	m := container.NewManager(container.Options{Executor: probe})
+	img := rootfs.New()
+	img.MkdirAll("/usr/bin", 0o755)
+	img.WriteFile("/usr/bin/p.wasm", []byte("\x00asm\x01\x00\x00\x00"), 0o755)
+	img.Freeze()
+	c, err := m.Create(container.CreateOptions{Name: "snd", Lower: img,
+		Config: container.Config{Image: "p", ImageID: "sha256:x", Entrypoint: []string{"p"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start(context.Background(), c.ID()); err != nil {
+		t.Fatal(err)
+	}
+	specID := <-probe.got
+	full := c.Snapshot().ID
+	if len(full) != 64 || specID != full {
+		t.Fatalf("engine plays under %q, its API reports %q", specID, full)
+	}
 	h := newHarness(t)
-	full := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	var key string
-	h.app.Sound.SetAudio(func(c string, _ float64, _ bool) { key = c })
+	h.app.Sound.SetAudio(func(c string, _ float64, _ bool) bool { key = c; return true })
 	h.app.Sound.ToggleMute(full)
-	if key != full {
-		t.Errorf("audio key %q, want the full container ID", key)
+	if key != specID {
+		t.Errorf("audio key %q, the engine's spec ID is %q", key, specID)
+	}
+}
+
+// At the bound an unmuted level is evicted for a new one; a muted one never is.
+func TestSoundBoundEvictsUnmutedNeverMuted(t *testing.T) {
+	s := newSound()
+	type call struct {
+		c string
+		v float64
+		m bool
+	}
+	var calls []call
+	s.SetAudio(func(c string, v float64, m bool) bool { calls = append(calls, call{c, v, m}); return true })
+	s.ToggleMute("k000") // muted, and the smallest key
+	for i := 1; i < MaxSoundKeys; i++ {
+		s.SetVolume(fmt.Sprintf("k%03d", i), 50)
+	}
+	s.SetVolume("fresh", 70)
+	if len(s.levels) != MaxSoundKeys {
+		t.Fatalf("%d levels", len(s.levels))
+	}
+	if _, m := s.Level("k000"); !m {
+		t.Fatal("the bound unmuted a muted container")
+	}
+	if _, ok := s.levels["k001"]; ok {
+		t.Error("the least unmuted level was not the one evicted")
+	}
+	if last := calls[len(calls)-2]; last != (call{"k001", 1, false}) {
+		t.Errorf("the page was not told to free the evicted key: %+v", last)
+	}
+	if v, _ := s.Level("fresh"); v != 70 || s.Refused.Get() != "" {
+		t.Errorf("fresh %d refused %q", v, s.Refused.Get())
+	}
+}
+
+// With every kept level muted there is nothing to evict: the new mute is
+// refused where the user can read it, and nothing pretends it took.
+func TestSoundBoundAllMutedRefusesVisibly(t *testing.T) {
+	s := newSound()
+	for i := 0; i < MaxSoundKeys; i++ {
+		s.ToggleMute(fmt.Sprintf("k%03d", i))
+	}
+	s.ToggleMute("extra")
+	if _, m := s.Level("extra"); m {
+		t.Error("a mute past the bound looks applied")
+	}
+	if !strings.Contains(s.Refused.Get(), "unmute one first") {
+		t.Errorf("refusal not shown: %q", s.Refused.Get())
+	}
+	s.ToggleMute("k000") // an unmute frees a slot
+	s.ToggleMute("extra")
+	if _, m := s.Level("extra"); !m || s.Refused.Get() != "" {
+		t.Errorf("extra muted %v refused %q", m, s.Refused.Get())
+	}
+}
+
+// The page's refusal (its own bound) propagates: no level is kept and the
+// refusal is shown, so "muted" is never displayed while the sound plays.
+func TestSoundPageRefusalPropagates(t *testing.T) {
+	s := newSound()
+	s.SetAudio(func(string, float64, bool) bool { return false })
+	s.ToggleMute("a")
+	if _, m := s.Level("a"); m {
+		t.Error("a mute the page refused is shown as muted")
+	}
+	if !strings.Contains(s.Refused.Get(), "page refused") {
+		t.Errorf("refusal = %q", s.Refused.Get())
 	}
 }

@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-wasmcontainers/dashboard/internal/site"
 	"github.com/go-wasmcontainers/dashboard/ui"
+	"github.com/go-wasmcontainers/dashboard/vm"
 )
 
 var siteDir string
@@ -111,6 +112,21 @@ func (d *driver) click(name string) {
 	if err := d.page.Mouse().Click(float64(b.X+b.W/2), float64(b.Y+b.H/2)); err != nil {
 		d.t.Fatal(err)
 	}
+}
+
+// goTo opens a view by its place in the navigation (vm.View*), never by a
+// number written in a test: adding a view must not move the others.
+func (d *driver) goTo(name string) {
+	d.t.Helper()
+	view, ok := map[string]int{
+		"Containers": vm.ViewContainers, "Images": vm.ViewImages, "Volumes": vm.ViewVolumes,
+		"Networks": vm.ViewNetworks, "Topology": vm.ViewTopology, "Terminal": vm.ViewTerminal,
+		"Surfaces": vm.ViewSurfaces,
+	}[name]
+	if !ok {
+		d.t.Fatalf("no view called %q", name)
+	}
+	d.press(fmt.Sprintf("Alt+%d", view+1))
 }
 
 func (d *driver) press(keys ...string) {

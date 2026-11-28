@@ -80,7 +80,7 @@ func newSurfaces(a *App) *Surfaces {
 }
 
 // SetAudio sets how a container's sound level reaches the page's audio graph.
-func (s *Surfaces) SetAudio(f func(container string, volume float64, muted bool)) {
+func (s *Surfaces) SetAudio(f func(container string, volume float64, muted bool) bool) {
 	s.app.Sound.SetAudio(f)
 }
 

@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/go-widgets/mvvm"
@@ -23,13 +24,15 @@ type level struct {
 // for a group (a network, a project), one call per member (SetMuted). Per
 // container levels survive the page-wide mute, as in the page.
 type Sound struct {
-	audio  func(container string, volume float64, muted bool)
+	audio  func(container string, volume float64, muted bool) bool
 	global func(muted bool)
 	levels map[string]level
 	active map[string]bool
 
 	// All is the page-wide mute.
 	All *mvvm.Observable[bool]
+	// Refused says why the last level change did not take ("" when it did).
+	Refused *mvvm.Observable[string]
 	// Revision counts changes (a level, the page mute, the active set): views
 	// that draw sound state subscribe to it.
 	Revision *mvvm.Observable[int]
@@ -37,14 +40,17 @@ type Sound struct {
 
 func newSound() *Sound {
 	return &Sound{levels: map[string]level{}, active: map[string]bool{},
-		All: mvvm.NewObservable(false), Revision: mvvm.NewObservable(0)}
+		All: mvvm.NewObservable(false), Refused: mvvm.NewObservable(""), Revision: mvvm.NewObservable(0)}
 }
 
-// MaxSoundKeys bounds the levels kept (one per distinct container named).
-const MaxSoundKeys = 1024
+// MaxSoundKeys bounds the levels kept (one per distinct container named). It is
+// the page's own bound (web/audio.js keeps 256 preferences), so the two agree.
+const MaxSoundKeys = 256
 
-// SetAudio sets how a container's level reaches the page's audio graph.
-func (s *Sound) SetAudio(f func(container string, volume float64, muted bool)) { s.audio = f }
+// SetAudio sets how a container's level reaches the page's audio graph. f
+// reports whether the page took the level; false is a refusal the dashboard
+// shows (Refused) instead of a mute that sounds on.
+func (s *Sound) SetAudio(f func(container string, volume float64, muted bool) bool) { s.audio = f }
 
 // SetGlobalAudio sets how the page-wide mute reaches the page's audio graph.
 func (s *Sound) SetGlobalAudio(f func(muted bool)) { s.global = f }
@@ -60,23 +66,53 @@ func (s *Sound) Level(container string) (volume int, muted bool) {
 	return 100, false
 }
 
-func (s *Sound) update(container string, f func(level) level, notify bool) {
+// evict frees one slot by dropping an unmuted level (the least key, so the
+// choice is the same every time), returning the page's audio to its defaults
+// for it. A muted level is never dropped: that would unmute it. It reports
+// whether a slot was freed.
+func (s *Sound) evict() bool {
+	victim := ""
+	for k, l := range s.levels {
+		if !l.muted && (victim == "" || k < victim) {
+			victim = k
+		}
+	}
+	if victim == "" {
+		return false
+	}
+	delete(s.levels, victim)
+	if s.audio != nil {
+		s.audio(victim, 1, false)
+	}
+	return true
+}
+
+// update applies f to a container's level and reports whether it took. A
+// refusal (every kept level is muted and the bound is reached, or the page
+// refused the level) leaves the level as it was and says so on Refused: a mute
+// that did nothing must never look like a mute.
+func (s *Sound) update(container string, f func(level) level, notify bool) bool {
 	if container == "" {
-		return
+		return false
 	}
 	v, m := s.Level(container)
-	if _, known := s.levels[container]; !known && len(s.levels) >= MaxSoundKeys {
-		return
+	_, known := s.levels[container]
+	if !known && len(s.levels) >= MaxSoundKeys && !s.evict() {
+		s.Refused.Set(fmt.Sprintf("sound: %d containers already have a muted or set level; unmute one first", MaxSoundKeys))
+		return false
 	}
 	l := f(level{v, m})
 	l.volume = min(max(l.volume, 0), 100)
-	s.levels[container] = l
-	if s.audio != nil {
-		s.audio(container, float64(l.volume)/100, l.muted)
+	if s.audio != nil && !s.audio(container, float64(l.volume)/100, l.muted) {
+		s.Refused.Set("sound: the page refused the level of " + Clean(container, 12))
+		return false
 	}
+	s.levels[container] = l
+	s.Refused.Set("")
 	if notify {
 		s.bump()
 	}
+	return true
 }
 
 // SetVolume sets a container's volume (0 to 100).

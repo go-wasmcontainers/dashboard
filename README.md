@@ -204,7 +204,7 @@ returned to the engine worker with the session.
 - The bridge carries a path only (never a scheme or host) and a fixed set of
   methods. The page talks to nothing but its own origin (CSP
   `default-src 'self'`), and to the engine only through its API.
-- Fuzzed: `FuzzServer` (bridge), `FuzzInspectTree`, `FuzzClean`; the terminal's
+- Fuzzed: `FuzzServer` (bridge), `FuzzInspectTree`, `FuzzClean`, `FuzzParseEgress`, `FuzzParsePorts`; the terminal's
   parser is fuzzed in go-widgets.
 
 ## Performance
