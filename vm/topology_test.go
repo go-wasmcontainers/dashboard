@@ -477,3 +477,58 @@ func TestParseEgressAbsent(t *testing.T) {
 		t.Errorf("policy = %q", e.Policy)
 	}
 }
+
+// TestTopologyCoverageGuards holds the bounds and refusals the other tests
+// leave unexercised: an id-less container, more port badges than fit, a sound
+// action on a gateway, a changed set of sounding containers of the same size,
+// and the cap on inspected networks.
+func TestTopologyCoverageGuards(t *testing.T) {
+	g := BuildGraph(TopoInput{Containers: []api.ContainerSummary{ctr("", "ghost", "", "running", "bridge")}})
+	if len(g.Nodes) != 0 {
+		t.Errorf("a container without an id became a node: %+v", g.Nodes)
+	}
+
+	var ports []api.Port
+	for i := 1; i <= maxTopoPorts+4; i++ {
+		ports = append(ports, api.Port{PrivatePort: uint16(i), Type: "tcp"})
+	}
+	g = BuildGraph(TopoInput{Containers: []api.ContainerSummary{ctr("aaaa1111", "web", "", "running", "bridge", ports...)}})
+	n, _ := g.Node("c:aaaa1111")
+	if len(n.Badges) != maxTopoPorts+1 || n.Badges[maxTopoPorts] != "+4" {
+		t.Errorf("badges = %v, want %d ports and +4", n.Badges, maxTopoPorts)
+	}
+
+	a := topoApp(t)
+	a.Topology.graph = BuildGraph(TopoInput{Containers: []api.ContainerSummary{
+		ctr("aaaa1111", "web", "", "running", "bridge", api.Port{PrivatePort: 80, PublicPort: 8080, Type: "tcp"}),
+	}})
+	if m := a.Topology.NodeMembers(TopoNode{Kind: TopoGateway}); m != nil {
+		t.Errorf("a gateway has members %v", m)
+	}
+	a.Topology.ToggleSound(hostNodeID) // a gateway has no sound: nothing happens
+	if _, muted := a.Sound.Level("aaaa1111"); muted {
+		t.Error("a gateway's speaker muted a container")
+	}
+
+	a.Sound.SetActive([]string{"x"})
+	a.Sound.SetActive([]string{"y"}) // same size, other member: it must change
+	if a.Sound.Active("x") || !a.Sound.Active("y") {
+		t.Error("SetActive kept the old set")
+	}
+}
+
+func TestRefreshInspectsAtMostMaxNetworks(t *testing.T) {
+	h := newHarness(t)
+	var ns []engine.Network
+	for i := 0; i < MaxTopoNetworks+3; i++ {
+		ns = append(ns, net(fmt.Sprintf("n%03d", i), false, nil))
+	}
+	h.f.set(func() {
+		h.f.netErr = nil
+		h.f.networks = ns
+	})
+	h.refresh()
+	if g := h.app.Topology.Graph(); g.Note == "" {
+		t.Errorf("no note about the networks left out: %+v", g)
+	}
+}

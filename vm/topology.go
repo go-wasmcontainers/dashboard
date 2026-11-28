@@ -200,10 +200,7 @@ func ParsePorts(list []any) []PortBinding {
 		if len(out) >= 256 {
 			break
 		}
-		b, err := json.Marshal(x)
-		if err != nil {
-			continue
-		}
+		b, _ := json.Marshal(x) // a decoded JSON value always marshals; a failure leaves b empty and the unmarshal below skips it
 		var p api.Port
 		if json.Unmarshal(b, &p) != nil || p.PrivatePort == 0 {
 			continue
