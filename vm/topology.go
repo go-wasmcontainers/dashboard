@@ -226,10 +226,7 @@ func ParseEgress(raw []byte) Egress {
 	// Keys match without regard to case, and a key given twice does not hide the
 	// one that decodes. Each field is decoded on its own: one of the wrong type
 	// is dropped, the others are kept.
-	f, ok := firstObject(top["egress"])
-	if !ok {
-		return Egress{}
-	}
+	f, _ := firstObject(top["egress"]) // none: every field below is absent, the zero Egress
 	policy, _ := first[string](f["policy"])
 	reason, _ := first[string](f["reason"])
 	allowlist, _ := first[[]struct {
