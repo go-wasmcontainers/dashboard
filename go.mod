@@ -6,7 +6,7 @@ require (
 	github.com/docker/go-units v0.5.0
 	github.com/go-fleettools/buildstamp v0.1.0
 	github.com/go-opentype/fonts v0.14.0
-	github.com/go-wasmcontainers/engine v0.51.1
+	github.com/go-wasmcontainers/engine v0.52.0
 	github.com/go-widgets/mvvm v0.15.0
 	github.com/go-widgets/painter v0.19.0
 	github.com/go-widgets/shellterm v0.1.0

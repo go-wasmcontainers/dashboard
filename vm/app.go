@@ -195,7 +195,13 @@ func (a *App) read(ctx context.Context) snapshot {
 			if i >= MaxTopoNetworks {
 				break
 			}
-			// A network that cannot be inspected has no egress reported.
+			// An engine from v0.52.0 types the egress in the list itself.
+			if e, ok := EgressOf(n); ok {
+				s.egress[n.Name] = e
+				continue
+			}
+			// An older engine: read the inspect document. A network that
+			// cannot be inspected has no egress reported.
 			if raw, err := a.eng.NetworkInspect(ctx, n.Name); err == nil {
 				s.egress[n.Name] = ParseEgress(raw)
 			}

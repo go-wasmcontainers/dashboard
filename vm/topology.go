@@ -176,13 +176,56 @@ func ParseEgress(raw []byte) Egress {
 	if json.Unmarshal(raw, &doc) != nil || doc.Egress == nil {
 		return Egress{}
 	}
-	e := Egress{Policy: Clean(strings.ToLower(doc.Egress.Policy), 16), Reason: Clean(doc.Egress.Reason, 120), Allowed: len(doc.Egress.Allowlist)}
-	if g := doc.Egress.Gateway; g != nil {
-		e.GatewayKind, e.GatewayState = Clean(g.Kind, 32), Clean(strings.ToLower(g.State), 32)
-		e.Operator = RelayText(g.Operator, maxRelayText)
+	g := doc.Egress.Gateway
+	d := doc.Egress.Counters.LastDenied
+	in := egressFields{policy: doc.Egress.Policy, reason: doc.Egress.Reason, allowed: len(doc.Egress.Allowlist)}
+	if g != nil {
+		in.hasGateway, in.gwKind, in.gwOperator, in.gwState = true, g.Kind, g.Operator, g.State
 	}
-	if d := doc.Egress.Counters.LastDenied; d != nil {
-		e.DeniedHost, e.DeniedReason = RelayText(d.Host, maxRelayText), RelayText(d.Reason, maxRelayText)
+	if d != nil {
+		in.hasDenied, in.deniedHost, in.deniedReason = true, d.Host, d.Reason
+	}
+	return in.build()
+}
+
+// EgressOf is the Egress of a network the engine described with a typed
+// Egress field (engine v0.52.0 and later): the same cleaning and bounds as
+// ParseEgress, whatever the source. ok is false when the engine reported none
+// (an older engine leaves Policy ""): the caller then falls back to the raw
+// inspect document.
+func EgressOf(n engine.Network) (e Egress, ok bool) {
+	t := n.Egress
+	if t.Policy == "" {
+		return Egress{}, false
+	}
+	in := egressFields{policy: t.Policy, reason: t.Reason, allowed: len(t.Allowlist)}
+	if g := t.Gateway; g != nil {
+		in.hasGateway, in.gwKind, in.gwOperator, in.gwState = true, g.Kind, g.Operator, g.State
+	}
+	if d := t.Counters.LastDenied; d != nil {
+		in.hasDenied, in.deniedHost, in.deniedReason = true, d.Host, d.Reason
+	}
+	return in.build(), true
+}
+
+// egressFields is the one shape both decoders fill, so one function cleans it.
+type egressFields struct {
+	policy, reason              string
+	allowed                     int
+	hasGateway                  bool
+	gwKind, gwOperator, gwState string
+	hasDenied                   bool
+	deniedHost, deniedReason    string
+}
+
+func (in egressFields) build() Egress {
+	e := Egress{Policy: Clean(strings.ToLower(in.policy), 16), Reason: Clean(in.reason, 120), Allowed: in.allowed}
+	if in.hasGateway {
+		e.GatewayKind, e.GatewayState = Clean(in.gwKind, 32), Clean(strings.ToLower(in.gwState), 32)
+		e.Operator = RelayText(in.gwOperator, maxRelayText)
+	}
+	if in.hasDenied {
+		e.DeniedHost, e.DeniedReason = RelayText(in.deniedHost, maxRelayText), RelayText(in.deniedReason, maxRelayText)
 		if e.DeniedHost == "" {
 			e.DeniedReason = "" // a denial with no visible host says nothing
 		}

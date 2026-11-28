@@ -533,6 +533,61 @@ func TestRefreshInspectsAtMostMaxNetworks(t *testing.T) {
 	}
 }
 
+// The typed field (engine v0.52.0) gets the same cleaning as the raw document.
+func TestEgressOfTypedMatchesRaw(t *testing.T) {
+	hostile := "<b>x</b>\u001b[31m" + strings.Repeat("a", 200)
+	n := net("n", false, nil)
+	n.Egress = api.NetworkEgress{
+		Policy:    "GATEWAY",
+		Reason:    hostile,
+		Gateway:   &api.EgressGateway{Kind: "relay", Operator: hostile, State: "UP"},
+		Allowlist: []api.EgressDest{{Host: "a", Port: 443}, {Host: "b", Port: 443}},
+	}
+	n.Egress.Counters.LastDenied = &api.EgressDenial{Host: hostile, Reason: hostile}
+	got, ok := EgressOf(n)
+	if !ok {
+		t.Fatal("a typed egress was not used")
+	}
+	raw, _ := json.Marshal(map[string]any{"Egress": n.Egress})
+	if want := ParseEgress(raw); got != want {
+		t.Errorf("typed %+v, raw %+v", got, want)
+	}
+	if got.Allowed != 2 || got.Policy != "gateway" || got.GatewayState != "up" {
+		t.Errorf("typed fields lost: %+v", got)
+	}
+	if _, ok := EgressOf(net("old", false, nil)); ok {
+		t.Error("an engine that reports no egress was taken as reporting one")
+	}
+	n.Egress.Counters.LastDenied = &api.EgressDenial{Host: "ㅤ", Reason: "why"}
+	if e, _ := EgressOf(n); e.DeniedHost != "" || e.DeniedReason != "" {
+		t.Errorf("an invisible denial survived: %+v", e)
+	}
+}
+
+// A typed egress is not inspected again; an older engine is.
+func TestRefreshInspectsOnlyWhenEgressIsNotTyped(t *testing.T) {
+	h := newHarness(t)
+	typed := net("typed", false, nil)
+	typed.Egress = api.NetworkEgress{Policy: "none", Reason: "r"}
+	h.f.set(func() {
+		h.f.netErr = nil
+		h.f.networks = []engine.Network{typed, net("old", false, nil)}
+		h.f.netInspect = `{"Egress":{"Policy":"none"}}`
+	})
+	h.refresh()
+	h.f.mu.Lock()
+	defer h.f.mu.Unlock()
+	var inspected []string
+	for _, c := range h.f.calls {
+		if strings.HasPrefix(c, "network inspect ") {
+			inspected = append(inspected, c)
+		}
+	}
+	if len(inspected) != 1 || inspected[0] != "network inspect old" {
+		t.Errorf("inspected %q, want only the network without a typed egress", inspected)
+	}
+}
+
 // The relay is a party outside the engine; what it sends is text, never a
 // verified name. One test per rule.
 
