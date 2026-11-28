@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/go-widgets/toolkit"
+	"github.com/go-widgets/toolkit/iconoir"
 
 	"github.com/go-wasmcontainers/dashboard/vm"
 )
@@ -16,13 +17,44 @@ const (
 )
 
 // topoSoundToggle is the id of the speaker toggle of a node.
-//
-// TOOLKIT GAP (v0.414.0, graphview_badges.go:15,84): a GraphToggle is drawn as
-// TEXT (Glyph through the font), GraphBadge likewise, and GraphNode has no icon
-// field, so the speaker cannot be an Iconoir icon and hubs and gateways cannot
-// carry one (design section 6). The letter "S" stays until GraphView draws an
-// icon name through the iconoir package (iconoir.Draw); nothing is hand-drawn.
 const topoSoundToggle = "sound"
+
+// The Iconoir icons (MIT, go-icons/iconoir) of the graph, by name: GraphView
+// (toolkit v0.415.0) resolves them through GraphView.Icons = iconoir.Drawer.
+// Nothing is hand-drawn. The hub is the same glyph as the Networks view's.
+const (
+	topoIconHub       = "network-right"
+	topoIconInternet  = "globe"
+	topoIconTab       = "laptop"
+	topoIconContainer = "server"
+	topoIconSoundOn   = "sound-high"
+	topoIconSoundOff  = "sound-off"
+)
+
+// topoNodeIcon is the icon of a node: by what it stands for, and for a gateway
+// by which edge of the picture it is.
+func topoNodeIcon(n vm.TopoNode) string {
+	switch n.Kind {
+	case vm.TopoNetwork:
+		return topoIconHub
+	case vm.TopoGateway:
+		if n.ID == vm.HostNodeID {
+			return topoIconTab
+		}
+		return topoIconInternet
+	}
+	return topoIconContainer
+}
+
+// topoSpeaker is the speaker toggle of a node: a speaker with sound, or the
+// crossed one when muted.
+func topoSpeaker(on bool) toolkit.GraphToggle {
+	icon := topoIconSoundOff
+	if on {
+		icon = topoIconSoundOn
+	}
+	return toolkit.GraphToggle{ID: topoSoundToggle, Icon: icon, On: on}
+}
 
 // okabeIto is the colour-blind-safe categorical palette (Okabe and Ito, 2008),
 // the toolkit's graph default and agentscope's.
@@ -69,6 +101,7 @@ func (s *Scene) buildTopology() {
 	g.ShowLegend = true
 	g.NodeWidth = topoNodeW
 	g.CornerRadius = topoRadius
+	g.Icons = iconoir.Drawer
 	g.Palette = topoPalette(s.dark)
 	g.NodeColor = func(n toolkit.GraphNode) (toolkit.RGBA, bool) {
 		if st, ok := s.tState[n.ID]; ok && st != "running" {
@@ -159,7 +192,7 @@ func (s *Scene) syncTopology() {
 	s.tState = map[string]string{}
 	nodes := make([]toolkit.GraphNode, 0, len(g.Nodes))
 	for _, n := range g.Nodes {
-		gn := toolkit.GraphNode{ID: n.ID, Label: n.Label, Cluster: n.Cluster, Category: n.Category}
+		gn := toolkit.GraphNode{ID: n.ID, Label: n.Label, Cluster: n.Cluster, Category: n.Category, Icon: topoNodeIcon(n)}
 		for _, b := range n.Badges {
 			gn.Badges = append(gn.Badges, toolkit.GraphBadge{Text: b})
 		}
@@ -169,7 +202,9 @@ func (s *Scene) syncTopology() {
 			gn.Cluster = ""
 			members := t.NodeMembers(n)
 			if anyActive(snd, members) {
-				gn.Toggles = []toolkit.GraphToggle{{ID: topoSoundToggle, Glyph: "S", Label: "Sound of " + n.Label, On: !snd.AllMuted(members)}}
+				sp := topoSpeaker(!snd.AllMuted(members))
+				sp.Label = "Sound of " + n.Label
+				gn.Toggles = []toolkit.GraphToggle{sp}
 			}
 		case vm.TopoGateway:
 			gn.Shape = toolkit.GraphShapeGateway
@@ -183,7 +218,9 @@ func (s *Scene) syncTopology() {
 					txt = "muted"
 				}
 				gn.Badges = append(gn.Badges, toolkit.GraphBadge{Text: txt})
-				gn.Toggles = []toolkit.GraphToggle{{ID: topoSoundToggle, Glyph: "S", Label: "Sound of " + n.Label, On: !muted}}
+				sp := topoSpeaker(!muted)
+				sp.Label = "Sound of " + n.Label
+				gn.Toggles = []toolkit.GraphToggle{sp}
 			}
 		}
 		nodes = append(nodes, gn)
@@ -248,7 +285,7 @@ func sameIDs(a, b []toolkit.GraphNode) bool {
 }
 
 func sameNode(a, b toolkit.GraphNode) bool {
-	if a.Label != b.Label || a.Category != b.Category || len(a.Badges) != len(b.Badges) || len(a.Toggles) != len(b.Toggles) {
+	if a.Label != b.Label || a.Category != b.Category || a.Icon != b.Icon || len(a.Badges) != len(b.Badges) || len(a.Toggles) != len(b.Toggles) {
 		return false
 	}
 	for i := range a.Badges {

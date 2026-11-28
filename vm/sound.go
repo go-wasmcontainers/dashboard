@@ -90,8 +90,8 @@ func (s *Sound) evict() bool {
 }
 
 // update applies f to a container's level and reports whether it took. A
-// refusal (every kept level is muted and the bound is reached, or the page
-// refused the level) leaves the level as it was and says so on Refused: a mute
+// refusal (the bound is reached and no kept level is a default one that could
+// make room, or the page refused the level) leaves the level as it was and says so on Refused: a mute
 // that did nothing must never look like a mute.
 func (s *Sound) update(container string, f func(level) level, notify bool) bool {
 	if container == "" {
@@ -113,11 +113,16 @@ func (s *Sound) update(container string, f func(level) level, notify bool) bool 
 func (s *Sound) apply(container string, f func(level) level) string {
 	v, m := s.Level(container)
 	_, known := s.levels[container]
-	if !known && len(s.levels) >= MaxSoundKeys && !s.evict() {
-		return fmt.Sprintf("sound: %d containers already have a set or muted level; reset one first", MaxSoundKeys)
-	}
 	l := f(level{v, m})
 	l.volume = min(max(l.volume, 0), 100)
+	if !known && len(s.levels) >= MaxSoundKeys {
+		if l == (level{100, false}) {
+			return "" // already the page's default: nothing to keep, nothing to refuse
+		}
+		if !s.evict() {
+			return fmt.Sprintf("sound: %d containers already have a set or muted level; reset one first", MaxSoundKeys)
+		}
+	}
 	if s.audio != nil && !s.audio(container, float64(l.volume)/100, l.muted) {
 		return "sound: the page refused the level of " + Clean(container, 12)
 	}
@@ -140,6 +145,9 @@ func (s *Sound) ToggleMute(container string) {
 	s.update(container, func(l level) level { l.muted = !l.muted; return l }, true)
 }
 
+// maxRefusedShown is how many refused members the refusal line names.
+const maxRefusedShown = 3
+
 // SetMuted mutes or unmutes every container of a group (a network's members,
 // a project's services), each by its own level; one change is published.
 func (s *Sound) SetMuted(containers []string, muted bool) {
@@ -159,7 +167,13 @@ func (s *Sound) SetMuted(containers []string, muted bool) {
 	if len(refused) == 0 {
 		s.Refused.Set("")
 	} else {
-		s.Refused.Set(fmt.Sprintf("sound: not applied to %s (%s)", strings.Join(refused, ", "), first))
+		// One bounded line, the reason first: the count, then a few names.
+		shown := refused[:min(len(refused), maxRefusedShown)]
+		more := ""
+		if len(refused) > len(shown) {
+			more = fmt.Sprintf(" and %d more", len(refused)-len(shown))
+		}
+		s.Refused.Set(fmt.Sprintf("%s; not applied to %d: %s%s", first, len(refused), strings.Join(shown, ", "), more))
 	}
 	s.bump()
 }

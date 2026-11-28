@@ -10,7 +10,7 @@ require (
 	github.com/go-widgets/mvvm v0.15.0
 	github.com/go-widgets/painter v0.19.0
 	github.com/go-widgets/shellterm v0.1.0
-	github.com/go-widgets/toolkit v0.414.0
+	github.com/go-widgets/toolkit v0.415.0
 	github.com/go-widgets/webcanvas v0.15.0
 	github.com/mxschmitt/playwright-go v0.6401.0
 	github.com/spf13/cobra v1.10.2

@@ -269,7 +269,7 @@ func TestSoundSetMutedKeepsRefusal(t *testing.T) {
 	if _, m := s.Level("a"); m {
 		t.Error("a refused member shows muted")
 	}
-	if got := s.Refused.Get(); !strings.Contains(got, "not applied to a ") {
+	if got := s.Refused.Get(); !strings.Contains(got, "not applied to 1: a") {
 		t.Errorf("refusal = %q", got)
 	}
 	s.SetMuted([]string{"", "b"}, true) // an empty name is skipped, not refused
