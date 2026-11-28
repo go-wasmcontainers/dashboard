@@ -43,12 +43,6 @@ type SurfaceRow struct {
 // VolumeStep is how much one press of a pane's volume buttons changes it.
 const VolumeStep = 10
 
-// level is one container's sound level.
-type level struct {
-	volume int
-	muted  bool
-}
-
 type surface struct {
 	row        SurfaceRow
 	container  string
@@ -73,58 +67,40 @@ type Surfaces struct {
 	ack   func(surface uint32, seq uint64)
 	input func(SurfaceInput)
 	byID  map[uint32]*surface
-	// audio applies a container's level (volume 0 to 1, muted) in the page's
-	// audio graph; levels are by container, kept across a pane's life.
-	audio  func(container string, volume float64, muted bool)
-	levels map[string]level
 	// Rows are the panes, by surface ID.
 	Rows *mvvm.ObservableList[SurfaceRow]
 }
 
+// newSurfaces builds the panes over the app's sound store: a level changed
+// elsewhere (the topology graph) repaints the panes' rows.
 func newSurfaces(a *App) *Surfaces {
-	return &Surfaces{app: a, byID: map[uint32]*surface{}, levels: map[string]level{}, Rows: mvvm.NewObservableList[SurfaceRow]()}
+	s := &Surfaces{app: a, byID: map[uint32]*surface{}, Rows: mvvm.NewObservableList[SurfaceRow]()}
+	a.Sound.Revision.SubscribeChanged(s.publish)
+	return s
 }
 
 // SetAudio sets how a container's sound level reaches the page's audio graph.
-func (s *Surfaces) SetAudio(f func(container string, volume float64, muted bool)) { s.audio = f }
-
-func (s *Surfaces) level(container string) level {
-	if l, ok := s.levels[container]; ok {
-		return l
-	}
-	return level{volume: 100}
+func (s *Surfaces) SetAudio(f func(container string, volume float64, muted bool)) {
+	s.app.Sound.SetAudio(f)
 }
 
-// setLevel stores the level of the container of pane id and applies it. A pane
-// with no container (the engine did not say which) has no sound to control.
-func (s *Surfaces) setLevel(id uint32, f func(l level) level) {
-	sf, ok := s.byID[id]
-	if !ok || sf.container == "" {
-		return
+// container is the audio key of pane id ("" when the engine did not say which
+// container it is: such a pane has no sound to control).
+func (s *Surfaces) container(id uint32) string {
+	if sf, ok := s.byID[id]; ok {
+		return sf.container
 	}
-	l := f(s.level(sf.container))
-	l.volume = min(max(l.volume, 0), 100)
-	s.levels[sf.container] = l
-	if s.audio != nil {
-		s.audio(sf.container, float64(l.volume)/100, l.muted)
-	}
-	s.publish()
+	return ""
 }
 
 // SetVolume sets the volume (0 to 100) of the sound of pane id's container.
-func (s *Surfaces) SetVolume(id uint32, percent int) {
-	s.setLevel(id, func(l level) level { l.volume = percent; return l })
-}
+func (s *Surfaces) SetVolume(id uint32, percent int) { s.app.Sound.SetVolume(s.container(id), percent) }
 
 // StepVolume changes the volume by delta (VolumeStep, or its negative).
-func (s *Surfaces) StepVolume(id uint32, delta int) {
-	s.setLevel(id, func(l level) level { l.volume += delta; return l })
-}
+func (s *Surfaces) StepVolume(id uint32, delta int) { s.app.Sound.StepVolume(s.container(id), delta) }
 
 // ToggleMute mutes, or unmutes, the sound of pane id's container.
-func (s *Surfaces) ToggleMute(id uint32) {
-	s.setLevel(id, func(l level) level { l.muted = !l.muted; return l })
-}
+func (s *Surfaces) ToggleMute(id uint32) { s.app.Sound.ToggleMute(s.container(id)) }
 
 // SetAck sets how a frame is acknowledged to the engine ({t:"frame-ack"}).
 func (s *Surfaces) SetAck(ack func(surface uint32, seq uint64)) { s.ack = ack }
@@ -315,8 +291,7 @@ func (s *Surfaces) publish() {
 		sf := s.byID[id]
 		r := sf.row
 		r.Title = fmt.Sprintf("%s — surface %d", s.owner(sf), id)
-		lv := s.level(sf.container)
-		r.Volume, r.Muted = lv.volume, lv.muted
+		r.Volume, r.Muted = s.app.Sound.Level(sf.container)
 		switch {
 		case r.Closed:
 			r.Status = fmt.Sprintf("%dx%d, closed", r.W, r.H)

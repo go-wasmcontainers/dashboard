@@ -68,7 +68,10 @@ type App struct {
 	Networks   *Networks
 	Class      *Class
 	Surfaces   *Surfaces
-	Detail     *Detail
+	// Sound is the one store of sound levels, shared by the panes and the
+	// topology graph.
+	Sound *Sound
+	Detail    *Detail
 	Terminal   *Terminal
 	// ExecShell is the shell inside the shown container (`wctr exec -it`).
 	ExecShell *ExecShell
@@ -102,6 +105,7 @@ func NewApp(eng engine.Engine, cli *CLI, post func(func())) *App {
 	a.Volumes = newVolumes(a)
 	a.Networks = newNetworks(a)
 	a.Class = newClass(a)
+	a.Sound = newSound()
 	a.Surfaces = newSurfaces(a)
 	a.Detail = newDetail(a)
 	a.Terminal = newTerminal(a)

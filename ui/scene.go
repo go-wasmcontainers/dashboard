@@ -16,6 +16,7 @@ import (
 	"github.com/go-widgets/painter"
 	"github.com/go-widgets/shellterm"
 	"github.com/go-widgets/toolkit"
+	"github.com/go-widgets/toolkit/iconoir"
 	"github.com/go-widgets/webcanvas"
 
 	"github.com/go-wasmcontainers/dashboard/vm"
@@ -463,7 +464,7 @@ func navItem(p painter.Painter, theme *toolkit.Theme, rc toolkit.Rect, index int
 	sz := u(18)
 	pad := u(8)
 	if index >= 0 && index < len(navIcons) {
-		toolkit.DrawIconoir(p, toolkit.Rect{X: rc.X + pad, Y: rc.Y + (rc.H-sz)/2, W: sz, H: sz}, navIcons[index], ink)
+		iconoir.Drawer(navIcons[index])(p, toolkit.Rect{X: rc.X + pad, Y: rc.Y + (rc.H-sz)/2, W: sz, H: sz}, ink)
 	}
 	toolkit.DrawText(p, rc.X+2*pad+sz, rc.Y+(rc.H-toolkit.GlyphHeight())/2, item, ink)
 }
@@ -472,7 +473,7 @@ func navItem(p painter.Painter, theme *toolkit.Theme, rc toolkit.Rect, index int
 // centred in the slot the field gives it.
 func searchIcon(p painter.Painter, r toolkit.Rect, ink toolkit.RGBA) {
 	sz := min(r.W, r.H, u(16))
-	toolkit.DrawIconoir(p, toolkit.Rect{X: r.X + (r.W-sz)/2, Y: r.Y + (r.H-sz)/2, W: sz, H: sz}, "search", ink)
+	iconoir.Drawer("search")(p, toolkit.Rect{X: r.X + (r.W-sz)/2, Y: r.Y + (r.H-sz)/2, W: sz, H: sz}, ink)
 }
 
 // inspectLine renders an inspect tree line, indented by depth.
