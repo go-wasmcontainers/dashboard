@@ -244,7 +244,7 @@ func TestGraphEgressRelayText(t *testing.T) {
 		t.Errorf("edge = %+v", e)
 	}
 	n, _ := g.Node("n:class")
-	if !reflect.DeepEqual(n.Badges, []string{"last denied x.example.org (sni)"}) {
+	if !reflect.DeepEqual(n.Badges, []string{`last denied (unverified text) "x.example.org" (sni)`}) {
 		t.Errorf("hub badges = %v", n.Badges)
 	}
 }
@@ -530,5 +530,105 @@ func TestRefreshInspectsAtMostMaxNetworks(t *testing.T) {
 	h.refresh()
 	if g := h.app.Topology.Graph(); g.Note == "" {
 		t.Errorf("no note about the networks left out: %+v", g)
+	}
+}
+
+// The relay is a party outside the engine; what it sends is text, never a
+// verified name. One test per rule.
+
+func relayDoc(operator, host, reason string) []byte {
+	b, _ := json.Marshal(map[string]any{"Egress": map[string]any{
+		"Policy":   "gateway",
+		"Gateway":  map[string]any{"Kind": "relay", "Operator": operator, "State": "up"},
+		"Counters": map[string]any{"LastDenied": map[string]any{"Host": host, "Reason": reason}},
+	}})
+	return b
+}
+
+func TestRelayTextMarkupStaysLiteral(t *testing.T) {
+	e := ParseEgress(relayDoc(`<img src=x onerror=1>&amp;`, `<script>x</script>`, `"><b>`))
+	if e.Operator != `<img src=x onerror=1>&amp;` {
+		t.Errorf("operator = %q: markup must be shown, not changed or interpreted", e.Operator)
+	}
+	g := BuildGraph(TopoInput{Networks: []engine.Network{net("n", false, nil)}, Egress: map[string]Egress{"n": e}})
+	hub, _ := g.Node("n:n")
+	if want := `last denied (unverified text) "<script>x</script>" ("><b>)`; len(hub.Badges) != 1 || hub.Badges[0] != want {
+		t.Errorf("badges = %q, want %q", hub.Badges, want)
+	}
+}
+
+func TestRelayTextCapsCombiningMarks(t *testing.T) {
+	stack := "e" + strings.Repeat("́", 40) + "x" + strings.Repeat("⃗", 40)
+	got := RelayText(stack, maxRelayText)
+	if want := "é́x⃗⃗"; got != want {
+		t.Errorf("RelayText = %q, want %q", got, want)
+	}
+	if RelayText("́́a", 10) != "a" {
+		t.Error("a combining mark with no base must go")
+	}
+	if got := RelayText("a ́b", 10); got != "a b" {
+		t.Errorf("a mark after a space has no base: %q", got)
+	}
+	e := ParseEgress(relayDoc(stack, "h.example", "r"))
+	if e.Operator != "é́x⃗⃗" {
+		t.Errorf("ParseEgress did not cap the marks: %q", e.Operator)
+	}
+}
+
+func TestRelayTextInvisibleOperatorIsAbsent(t *testing.T) {
+	for _, op := range []string{"", " ", "ㅤ", " ", " ㅤ ", "​", "️", "\U000e0100", "́", "⠀", "ᅟᅠ"} {
+		e := ParseEgress(relayDoc(op, "h.example", "r"))
+		if e.Operator != "" {
+			t.Errorf("operator %q kept as %q", op, e.Operator)
+		}
+		g := BuildGraph(TopoInput{Networks: []engine.Network{net("n", false, nil)}, Egress: map[string]Egress{"n": e}})
+		if edge, _ := edgeByID(g, "e:n"); strings.Contains(edge.Label, "(") && !strings.Contains(edge.Label, "gateway") {
+			t.Errorf("operator %q: edge label %q", op, edge.Label)
+		}
+		for _, l := range g.DetailLines("node:n:n") {
+			if strings.HasPrefix(l, "Operator") {
+				t.Errorf("operator %q: detail line %q", op, l)
+			}
+		}
+		if edge, _ := edgeByID(g, "e:n"); strings.Contains(edge.Label, "()") || strings.Contains(edge.Label, "( )") {
+			t.Errorf("operator %q: blank label in %q", op, edge.Label)
+		}
+	}
+	if RelayText(" Labㅤ IT️", 48) != "Lab IT" {
+		t.Errorf("a visible operator must survive: %q", RelayText(" Labㅤ IT️", 48))
+	}
+	if got := RelayText("abcdef", 3); got != "abc…" {
+		t.Errorf("bound = %q", got)
+	}
+	if got := RelayText("a b", 1); got != "a…" {
+		t.Errorf("bound at a space = %q", got)
+	}
+}
+
+func TestRelayDeniedHostIsUnverifiedText(t *testing.T) {
+	// Cyrillic "а" for Latin "a": invisible in plain text, plain once escaped.
+	e := ParseEgress(relayDoc("Lab", "аpple.com", "sni"))
+	g := BuildGraph(TopoInput{Networks: []engine.Network{net("n", false, nil)}, Egress: map[string]Egress{"n": e}})
+	hub, _ := g.Node("n:n")
+	if len(hub.Badges) != 1 || !strings.Contains(hub.Badges[0], "\"\\u0430pple.com\"") || !strings.Contains(hub.Badges[0], "unverified") {
+		t.Errorf("badge = %q", hub.Badges)
+	}
+	var line string
+	for _, l := range hub.Detail {
+		if strings.HasPrefix(l, "Last denied") {
+			line = l
+		}
+	}
+	if !strings.Contains(line, "unverified text") || !strings.Contains(line, "\"\\u0430pple.com\"") || strings.Contains(line, "\u0430") {
+		t.Errorf("detail line = %q", line)
+	}
+	// A host made only of invisible characters is no denial at all.
+	e = ParseEgress(relayDoc("Lab", "ㅤ ", "why"))
+	if e.DeniedHost != "" || e.DeniedReason != "" {
+		t.Errorf("invisible-only host kept: %+v", e)
+	}
+	g = BuildGraph(TopoInput{Networks: []engine.Network{net("n", false, nil)}, Egress: map[string]Egress{"n": e}})
+	if hub, _ := g.Node("n:n"); len(hub.Badges) != 0 {
+		t.Errorf("badges = %q", hub.Badges)
 	}
 }

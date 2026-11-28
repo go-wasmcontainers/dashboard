@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/go-wasmcontainers/engine/api"
 	"github.com/go-widgets/mvvm"
@@ -177,13 +179,89 @@ func ParseEgress(raw []byte) Egress {
 	e := Egress{Policy: Clean(strings.ToLower(doc.Egress.Policy), 16), Reason: Clean(doc.Egress.Reason, 120), Allowed: len(doc.Egress.Allowlist)}
 	if g := doc.Egress.Gateway; g != nil {
 		e.GatewayKind, e.GatewayState = Clean(g.Kind, 32), Clean(strings.ToLower(g.State), 32)
-		e.Operator = Clean(g.Operator, maxRelayText)
+		e.Operator = RelayText(g.Operator, maxRelayText)
 	}
 	if d := doc.Egress.Counters.LastDenied; d != nil {
-		e.DeniedHost, e.DeniedReason = Clean(d.Host, maxRelayText), Clean(d.Reason, maxRelayText)
+		e.DeniedHost, e.DeniedReason = RelayText(d.Host, maxRelayText), RelayText(d.Reason, maxRelayText)
+		if e.DeniedHost == "" {
+			e.DeniedReason = "" // a denial with no visible host says nothing
+		}
 	}
 	return e
 }
+
+// maxMarks is how many combining marks one base character keeps.
+const maxMarks = 2
+
+// invisibleFiller reports a character that draws nothing but is not a format
+// character (Clean drops those): Hangul fillers, the braille blank, and the
+// variation selectors, which only change how a neighbour looks.
+func invisibleFiller(r rune) bool {
+	switch {
+	case r == 0x115F, r == 0x1160, r == 0x3164, r == 0xFFA0, r == 0x2800, r == 0x180E:
+		return true
+	case r >= 0xFE00 && r <= 0xFE0F, r >= 0xE0100 && r <= 0xE01EF:
+		return true
+	}
+	return false
+}
+
+// RelayText cleans a string the relay supplied (operator, denial) for display
+// as one line of plain text: Clean's rules, then no-break and other spaces
+// become a plain space, invisible fillers and variation selectors are dropped,
+// at most maxMarks combining marks stay on a base character (a mark with no
+// base goes), and the result is bounded to max runes. A string with nothing
+// visible left (only spaces, fillers, marks) is "": absent, not a blank label.
+// Homoglyphs cannot be told from the real letters; callers that show the text
+// as an identifier escape it (see quoteASCII) and say it is unverified.
+func RelayText(s string, max int) string {
+	var b strings.Builder
+	marks, visible, n := 0, false, 0
+	space := false
+	for _, r := range Clean(s, 1<<20) {
+		switch {
+		case invisibleFiller(r):
+			continue
+		case unicode.Is(unicode.Zs, r) || r == ' ':
+			if b.Len() > 0 {
+				space = true
+			}
+			marks = 0
+			continue
+		case unicode.IsMark(r):
+			if marks >= maxMarks || b.Len() == 0 || space {
+				continue
+			}
+			marks++
+		default:
+			marks = 0
+			visible = true
+		}
+		if space {
+			if n == max {
+				b.WriteString("…")
+				break
+			}
+			b.WriteByte(' ')
+			space = false
+			n++
+		}
+		if n == max {
+			b.WriteString("…")
+			break
+		}
+		b.WriteRune(r)
+		n++
+	}
+	if !visible {
+		return ""
+	}
+	return b.String()
+}
+
+// quoteASCII shows relay text as an escaped literal: anything that is not
+// printable ASCII appears as a \u escape, so a look-alike letter is visible.
+func quoteASCII(s string) string { return strconv.QuoteToASCII(s) }
 
 // PortBinding is one entry of a container summary's Ports.
 type PortBinding struct {
@@ -336,7 +414,7 @@ func BuildGraph(in TopoInput) Graph {
 		}
 		eg := in.Egress[nw.Name]
 		if eg.DeniedHost != "" {
-			d := "last denied " + eg.DeniedHost
+			d := "last denied (unverified text) " + quoteASCII(eg.DeniedHost)
 			if eg.DeniedReason != "" {
 				d += " (" + eg.DeniedReason + ")"
 			}
@@ -434,7 +512,7 @@ func networkDetail(nw engine.Network, e Egress, members int, egress string) []st
 		out = append(out, "Operator "+e.Operator)
 	}
 	if e.DeniedHost != "" {
-		out = append(out, "Last denied "+e.DeniedHost+" "+e.DeniedReason)
+		out = append(out, "Last denied (unverified text sent by the relay, not a checked host name) "+quoteASCII(e.DeniedHost)+" "+e.DeniedReason)
 	}
 	return out
 }
