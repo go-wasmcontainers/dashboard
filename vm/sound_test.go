@@ -181,7 +181,11 @@ func TestSoundBoundEvictsUnmutedNeverMuted(t *testing.T) {
 	s.SetAudio(func(c string, v float64, m bool) bool { calls = append(calls, call{c, v, m}); return true })
 	s.ToggleMute("k000") // muted, and the smallest key
 	for i := 1; i < MaxSoundKeys; i++ {
-		s.SetVolume(fmt.Sprintf("k%03d", i), 50)
+		v := 50
+		if i == 1 || i == 2 {
+			v = 100 // at the default level: the only ones that may be evicted
+		}
+		s.SetVolume(fmt.Sprintf("k%03d", i), v)
 	}
 	s.SetVolume("fresh", 70)
 	if len(s.levels) != MaxSoundKeys {
@@ -212,7 +216,7 @@ func TestSoundBoundAllMutedRefusesVisibly(t *testing.T) {
 	if _, m := s.Level("extra"); m {
 		t.Error("a mute past the bound looks applied")
 	}
-	if !strings.Contains(s.Refused.Get(), "unmute one first") {
+	if !strings.Contains(s.Refused.Get(), "reset one first") {
 		t.Errorf("refusal not shown: %q", s.Refused.Get())
 	}
 	s.ToggleMute("k000") // an unmute frees a slot
@@ -233,5 +237,62 @@ func TestSoundPageRefusalPropagates(t *testing.T) {
 	}
 	if !strings.Contains(s.Refused.Get(), "page refused") {
 		t.Errorf("refusal = %q", s.Refused.Get())
+	}
+}
+
+// Evicting never changes a user's setting: a container set to volume 0 keeps it
+// when a new key arrives and the only candidates have a non-default level.
+func TestSoundEvictNeverChangesASetting(t *testing.T) {
+	s := newSound()
+	s.SetVolume("k000", 0)
+	for i := 1; i < MaxSoundKeys; i++ {
+		s.SetVolume(fmt.Sprintf("k%03d", i), 50)
+	}
+	s.SetVolume("fresh", 70)
+	if v, _ := s.Level("k000"); v != 0 {
+		t.Errorf("volume 0 became %d", v)
+	}
+	if _, ok := s.levels["fresh"]; ok {
+		t.Error("a level was kept past the bound")
+	}
+	if !strings.Contains(s.Refused.Get(), "reset one first") {
+		t.Errorf("refusal not shown: %q", s.Refused.Get())
+	}
+}
+
+// A refusal inside a group mute is not erased by a later member that succeeds,
+// and it names the members refused.
+func TestSoundSetMutedKeepsRefusal(t *testing.T) {
+	s := newSound()
+	s.SetAudio(func(c string, _ float64, _ bool) bool { return c != "a" })
+	s.SetMuted([]string{"a", "b"}, true)
+	if _, m := s.Level("a"); m {
+		t.Error("a refused member shows muted")
+	}
+	if got := s.Refused.Get(); !strings.Contains(got, "not applied to a ") {
+		t.Errorf("refusal = %q", got)
+	}
+	s.SetMuted([]string{"b"}, true)
+	if s.Refused.Get() != "" {
+		t.Errorf("a clean call kept a stale refusal: %q", s.Refused.Get())
+	}
+}
+
+// A refused change publishes nothing and reports false; without a page
+// attached a level simply takes.
+func TestSoundRefusalPublishesNothing(t *testing.T) {
+	s := newSound()
+	s.SetAudio(func(string, float64, bool) bool { return false })
+	rev := s.Revision.Get()
+	if s.update("a", func(l level) level { l.muted = true; return l }, true) {
+		t.Error("a refused change reports success")
+	}
+	if s.Revision.Get() != rev {
+		t.Error("a refused change was published")
+	}
+	s.SetAudio(nil)
+	s.ToggleMute("b")
+	if _, m := s.Level("b"); !m || s.Refused.Get() != "" {
+		t.Errorf("no page attached: muted %v refused %q", m, s.Refused.Get())
 	}
 }

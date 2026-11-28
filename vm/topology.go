@@ -210,40 +210,47 @@ func ParseEgress(raw []byte) Egress {
 		return Egress{}
 	}
 	var doc struct {
-		Egress *struct {
-			Policy  string `json:"Policy"`
-			Reason  string `json:"Reason"`
-			Gateway *struct {
-				Kind     string `json:"Kind"`
-				Operator string `json:"Operator"`
-				State    string `json:"State"`
-				Logs     bool   `json:"Logs"`
-			} `json:"Gateway"`
-			Allowlist []struct {
-				Host string `json:"Host"`
-				Port int    `json:"Port"`
-			} `json:"Allowlist"`
-			Counters struct {
-				LastDenied *struct {
-					Host   string `json:"Host"`
-					Reason string `json:"Reason"`
-				} `json:"LastDenied"`
-			} `json:"Counters"`
-		} `json:"Egress"`
+		Egress *map[string]json.RawMessage `json:"Egress"`
 	}
 	if json.Unmarshal(raw, &doc) != nil || doc.Egress == nil {
 		return Egress{}
 	}
-	g := doc.Egress.Gateway
-	d := doc.Egress.Counters.LastDenied
-	in := egressFields{policy: doc.Egress.Policy, reason: doc.Egress.Reason, allowed: len(doc.Egress.Allowlist)}
+	// Each field is decoded on its own: one of the wrong type is dropped, the
+	// others are kept.
+	f := *doc.Egress
+	var (
+		policy, reason string
+		g              *struct {
+			Kind     string `json:"Kind"`
+			Operator string `json:"Operator"`
+			State    string `json:"State"`
+			Logs     bool   `json:"Logs"`
+		}
+		allowlist []struct {
+			Host string `json:"Host"`
+			Port int    `json:"Port"`
+		}
+		counters struct {
+			LastDenied *struct {
+				Host   string `json:"Host"`
+				Reason string `json:"Reason"`
+			} `json:"LastDenied"`
+		}
+	)
+	_ = json.Unmarshal(f["Policy"], &policy)
+	_ = json.Unmarshal(f["Reason"], &reason)
+	_ = json.Unmarshal(f["Gateway"], &g)
+	_ = json.Unmarshal(f["Allowlist"], &allowlist)
+	_ = json.Unmarshal(f["Counters"], &counters)
+	d := counters.LastDenied
+	in := egressFields{policy: policy, reason: reason, allowed: len(allowlist)}
 	if g != nil {
 		in.hasGateway, in.gwKind, in.gwOperator, in.gwState, in.logs = true, g.Kind, g.Operator, g.State, g.Logs
 	}
 	if d != nil {
 		in.hasDenied, in.deniedHost, in.deniedReason = true, d.Host, d.Reason
 	}
-	for i, a := range doc.Egress.Allowlist {
+	for i, a := range allowlist {
 		if i >= maxAllowShown {
 			break
 		}
@@ -625,12 +632,10 @@ func networkDetail(nw engine.Network, e Egress, members int, egress string) []st
 	if e.Operator != "" {
 		out = append(out, "Operator label (unverified text set by the relay's operator) "+quoteASCII(e.Operator))
 	}
-	if e.GatewayKind != "" {
-		if e.Logs {
-			out = append(out, "Privacy: the relay's operator logs the destinations of this network (retention not reported)")
-		} else {
-			out = append(out, "Privacy: the relay says it does not log destinations (its own statement, not checked)")
-		}
+	if e.Logs {
+		out = append(out, "Privacy: the relay's operator logs the destinations of this network (retention not reported)")
+	} else if e.GatewayKind != "" {
+		out = append(out, "Privacy: the relay says it does not log destinations (its own statement, not checked)")
 	}
 	for _, a := range e.AllowList {
 		out = append(out, "Allowed "+quoteASCII(a))
@@ -676,14 +681,14 @@ func egressEdge(nw engine.Network, e Egress) TopoEdge {
 		if e.GatewayKind != "" {
 			te.Label = "egress via " + e.GatewayKind + " gateway"
 		}
+		if e.Logs {
+			te.Label += ", destinations logged"
+		}
 		if e.Operator != "" {
 			te.Label += " (operator label " + quoteASCII(e.Operator) + ")"
 		}
 		if e.Allowed > 0 {
 			te.Label += fmt.Sprintf(", %d hosts allowed", e.Allowed)
-		}
-		if e.Logs {
-			te.Label += ", destinations logged"
 		}
 		if e.GatewayState != "" && e.GatewayState != "up" && e.GatewayState != "running" && e.GatewayState != "ready" {
 			te.State = EdgeIdle

@@ -3,6 +3,7 @@ package vm
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/go-widgets/mvvm"
 )
@@ -66,14 +67,15 @@ func (s *Sound) Level(container string) (volume int, muted bool) {
 	return 100, false
 }
 
-// evict frees one slot by dropping an unmuted level (the least key, so the
-// choice is the same every time), returning the page's audio to its defaults
-// for it. A muted level is never dropped: that would unmute it. It reports
-// whether a slot was freed.
+// evict frees one slot by dropping a level that is already the default (volume
+// 100, not muted; the least key, so the choice is the same every time): the
+// page's audio goes back to its defaults for it, which changes nothing. A level
+// the user set, a muted one or a quieter one, is never dropped: that would make
+// the container loud. It reports whether a slot was freed.
 func (s *Sound) evict() bool {
 	victim := ""
 	for k, l := range s.levels {
-		if !l.muted && (victim == "" || k < victim) {
+		if !l.muted && l.volume == 100 && (victim == "" || k < victim) {
 			victim = k
 		}
 	}
@@ -95,24 +97,32 @@ func (s *Sound) update(container string, f func(level) level, notify bool) bool 
 	if container == "" {
 		return false
 	}
-	v, m := s.Level(container)
-	_, known := s.levels[container]
-	if !known && len(s.levels) >= MaxSoundKeys && !s.evict() {
-		s.Refused.Set(fmt.Sprintf("sound: %d containers already have a muted or set level; unmute one first", MaxSoundKeys))
+	why := s.apply(container, f)
+	s.Refused.Set(why)
+	if why != "" {
 		return false
 	}
-	l := f(level{v, m})
-	l.volume = min(max(l.volume, 0), 100)
-	if s.audio != nil && !s.audio(container, float64(l.volume)/100, l.muted) {
-		s.Refused.Set("sound: the page refused the level of " + Clean(container, 12))
-		return false
-	}
-	s.levels[container] = l
-	s.Refused.Set("")
 	if notify {
 		s.bump()
 	}
 	return true
+}
+
+// apply is update without the report: it returns why the level did not take
+// ("" when it did).
+func (s *Sound) apply(container string, f func(level) level) string {
+	v, m := s.Level(container)
+	_, known := s.levels[container]
+	if !known && len(s.levels) >= MaxSoundKeys && !s.evict() {
+		return fmt.Sprintf("sound: %d containers already have a set or muted level; reset one first", MaxSoundKeys)
+	}
+	l := f(level{v, m})
+	l.volume = min(max(l.volume, 0), 100)
+	if s.audio != nil && !s.audio(container, float64(l.volume)/100, l.muted) {
+		return "sound: the page refused the level of " + Clean(container, 12)
+	}
+	s.levels[container] = l
+	return ""
 }
 
 // SetVolume sets a container's volume (0 to 100).
@@ -133,8 +143,23 @@ func (s *Sound) ToggleMute(container string) {
 // SetMuted mutes or unmutes every container of a group (a network's members,
 // a project's services), each by its own level; one change is published.
 func (s *Sound) SetMuted(containers []string, muted bool) {
+	var refused []string
+	first := ""
 	for _, c := range containers {
-		s.update(c, func(l level) level { l.muted = muted; return l }, false)
+		if c == "" {
+			continue
+		}
+		if why := s.apply(c, func(l level) level { l.muted = muted; return l }); why != "" {
+			refused = append(refused, Clean(c, 12))
+			if first == "" {
+				first = why
+			}
+		}
+	}
+	if len(refused) == 0 {
+		s.Refused.Set("")
+	} else {
+		s.Refused.Set(fmt.Sprintf("sound: not applied to %s (%s)", strings.Join(refused, ", "), first))
 	}
 	s.bump()
 }

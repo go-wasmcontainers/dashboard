@@ -165,8 +165,8 @@ func session(t *testing.T, pw *playwright.Playwright, browser string, isolate bo
 	})
 	t.Logf("%s: dashboard ready in %s", browser, time.Since(t0).Round(time.Millisecond))
 
-	// Keyboard: F6 to the navigation, down to Terminal; type a run.
-	d.press("F6", "ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown")
+	// Keyboard: Alt+number to Terminal; type a run.
+	d.goTo("Terminal")
 	d.until("terminal view", 5*time.Second, func(p ui.Probe) bool { return p.View == "Terminal" })
 	d.click("terminal")
 	// One key press per character, as a person types (Playwright's Type
@@ -185,7 +185,8 @@ func session(t *testing.T, pw *playwright.Playwright, browser string, isolate bo
 	// Ctrl+L belongs to the terminal (it clears it), not to the browser.
 	d.press("Control+l")
 	// Back to the containers: select web with the keyboard, stop it with a click.
-	d.press("F6", "ArrowUp", "ArrowUp", "ArrowUp", "ArrowUp", "ArrowUp")
+	d.press("F6") // leaves the terminal, which keeps the Alt+ keys while focused
+	d.goTo("Containers")
 	d.until("containers view", 5*time.Second, func(p ui.Probe) bool { return p.View == "Containers" })
 	d.press("F6", "ArrowDown")
 	d.until("web selected", 5*time.Second, func(p ui.Probe) bool { return p.Selected != "" })
@@ -199,13 +200,13 @@ func session(t *testing.T, pw *playwright.Playwright, browser string, isolate bo
 		t.Errorf("last command = %q", p.LastCommand)
 	}
 	// The terminal shows what the button did.
-	d.press("F6", "ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown")
+	d.goTo("Terminal")
 	d.until("the action in the terminal", 10*time.Second, func(p ui.Probe) bool {
 		return strings.Contains(p.Terminal, "# dashboard: wctr stop web")
 	})
-	// Networks: one up from the terminal (the navigation has the focus);
-	// create one by name.
-	d.press("ArrowUp", "ArrowUp") // Topology sits between Networks and Terminal
+	// Networks: create one by name.
+	d.press("F6")
+	d.goTo("Networks")
 	p = d.until("networks view", 10*time.Second, func(p ui.Probe) bool { return p.View == "Networks" && len(p.Networks) > 0 })
 	if _, ok := p.Boxes["class.button"]; ok {
 		t.Error("this page cannot join a class, yet the dashboard offers it")
