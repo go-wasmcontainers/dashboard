@@ -90,7 +90,7 @@ func TestSurfaceFrames(t *testing.T) {
 	}
 	d := &driver{t: t, page: page, log: &log}
 	d.until("the dashboard", 90*time.Second, func(p ui.Probe) bool { return strings.HasPrefix(p.Status[0], "engine ") })
-	d.press("Alt+6")
+	d.goTo("Surfaces")
 	d.until("surfaces view", 10*time.Second, func(p ui.Probe) bool { return p.View == "Surfaces" })
 
 	const n = 30

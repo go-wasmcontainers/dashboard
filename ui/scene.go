@@ -16,6 +16,7 @@ import (
 	"github.com/go-widgets/painter"
 	"github.com/go-widgets/shellterm"
 	"github.com/go-widgets/toolkit"
+	"github.com/go-widgets/toolkit/iconoir"
 	"github.com/go-widgets/webcanvas"
 
 	"github.com/go-wasmcontainers/dashboard/vm"
@@ -112,6 +113,17 @@ type Scene struct {
 	jOK, jChange, jCancel *toolkit.Button
 	jRelayLbl, jNameLbl   *toolkit.Label
 	jCodeLbl              *toolkit.Label
+
+	// topology view: the graph, its controls and the selection's detail
+	tModel                                          *toolkit.GraphViewModel
+	tGraph                                          *toolkit.GraphView
+	tState                                          map[string]string
+	tZoomOut, tZoomIn, tFit                         *toolkit.Button
+	tMute, tMuteProject, tMuteAll, tImport, tExport *toolkit.Button
+	tMsg                                            *toolkit.Label
+	tDetail                                         *toolkit.ListBox
+	tSplit                                          *toolkit.HBox
+	tColumn                                         *toolkit.VBox
 
 	// the detail's Networks tab
 	dNets *toolkit.ListBox
@@ -421,6 +433,7 @@ func (s *Scene) build() {
 	bindItems(s.vInspect, v.Inspect, inspectLine, inv)
 
 	s.buildNetworks()
+	s.buildTopology()
 	s.buildSurfaces()
 
 	// Terminal.
@@ -456,24 +469,23 @@ const navRowH = 32
 // navIcons are the views' icons: Iconoir glyphs (MIT, go-icons/iconoir),
 // drawn through the toolkit's icon seam, rasterised at the row's device
 // size and recoloured to the row's ink.
-var navIcons = [vm.NumViews]string{"box", "package", "database", "network", "terminal", "tv"}
+var navIcons = [vm.NumViews]string{"box", "package", "database", "network", "network-right", "terminal", "tv"}
 
 // navItem draws a navigation row: its icon, then its label.
 func navItem(p painter.Painter, theme *toolkit.Theme, rc toolkit.Rect, index int, item string, selected bool, ink toolkit.RGBA) {
 	sz := u(18)
 	pad := u(8)
 	if index >= 0 && index < len(navIcons) {
-		toolkit.DrawIconoir(p, toolkit.Rect{X: rc.X + pad, Y: rc.Y + (rc.H-sz)/2, W: sz, H: sz}, navIcons[index], ink)
+		// The glyph centres itself in the row-high square it is handed.
+		iconoir.Drawer(navIcons[index])(p, toolkit.Rect{X: rc.X, Y: rc.Y, W: rc.H, H: rc.H}, ink)
 	}
 	toolkit.DrawText(p, rc.X+2*pad+sz, rc.Y+(rc.H-toolkit.GlyphHeight())/2, item, ink)
 }
 
 // searchIcon is the search fields' magnifier: Iconoir's "search", square and
 // centred in the slot the field gives it.
-func searchIcon(p painter.Painter, r toolkit.Rect, ink toolkit.RGBA) {
-	sz := min(r.W, r.H, u(16))
-	toolkit.DrawIconoir(p, toolkit.Rect{X: r.X + (r.W-sz)/2, Y: r.Y + (r.H-sz)/2, W: sz, H: sz}, "search", ink)
-}
+// The renderer centres the glyph in the slot and fits it to the shorter side.
+var searchIcon = iconoir.Drawer("search")
 
 // inspectLine renders an inspect tree line, indented by depth.
 func inspectLine(n vm.InspectNode) string {
@@ -613,5 +625,6 @@ func (s *Scene) toggleTheme() {
 		s.theme = Light()
 		s.themeBtn.Label().Set("Dark theme")
 	}
+	s.applyTopologyTheme()
 	s.invalidate()
 }

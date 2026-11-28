@@ -59,7 +59,7 @@ func TestSurfacePaneSound(t *testing.T) {
 		m bool
 	}
 	var calls []call
-	sf.SetAudio(func(c string, v float64, m bool) { calls = append(calls, call{c, v, m}) })
+	sf.SetAudio(func(c string, v float64, m bool) bool { calls = append(calls, call{c, v, m}); return true })
 	sf.Open(1, "cafe", 7, 640, 480)
 	r.app.View.Set(vm.ViewSurfaces)
 	r.frame()
@@ -141,7 +141,7 @@ func TestSurfacePanes(t *testing.T) {
 	b := &backing{images: map[uint32]string{}}
 	r.s.SetSurfaceCanvas(b)
 	r.s.Modifiers(webcanvas.Modifiers{Alt: true})
-	r.s.KeyDown("6")
+	r.s.KeyDown("7")
 	r.s.Modifiers(webcanvas.Modifiers{})
 	p := r.s.Probe()
 	if p.View != "Surfaces" || len(p.Surfaces) != 1 || p.Surfaces[0] != "pid 7 — surface 1 | 640x480, 1 fps" {

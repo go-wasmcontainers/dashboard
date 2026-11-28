@@ -55,6 +55,7 @@ func main() {
 	scene = ui.New(app, q, w, h)
 	host.ConnectClass(g, worker, app, q)
 	host.ConnectSurfaces(worker, app, q, scene)
+	host.ConnectTopology(g, app, q)
 	host.ConnectMouse(scene)
 
 	g.Set("__dashboard", map[string]any{

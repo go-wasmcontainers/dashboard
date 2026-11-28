@@ -18,7 +18,7 @@ func TestTerminalPasteShortcut(t *testing.T) {
 	r.until("engine", func(p Probe) bool { return strings.HasPrefix(p.Status[0], "engine test") })
 	r.s.KeyDown("F6")
 	r.s.Modifiers(webcanvas.Modifiers{Alt: true})
-	r.s.KeyDown("5")
+	r.s.KeyDown("6")
 	r.s.Modifiers(webcanvas.Modifiers{})
 	r.click("terminal")
 

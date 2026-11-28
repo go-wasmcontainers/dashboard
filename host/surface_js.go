@@ -135,11 +135,18 @@ func ConnectSurfaces(worker js.Value, app *vm.App, q *mvvm.Queue, scene *ui.Scen
 	// graph (the playground's web/audio.js, window.wctrAudio) holds one gain
 	// node per container, and setContainer(container, volume 0..1, muted) sets
 	// it. A page without sound has no wctrAudio, and the controls do nothing.
-	app.Surfaces.SetAudio(func(container string, volume float64, muted bool) {
+	// setContainer returns false when the page refuses the level (its own bound
+	// on the containers it keeps); that refusal reaches the dashboard, which
+	// shows it instead of a mute that sounds on. A page without sound keeps
+	// no state: nothing to refuse.
+	app.Surfaces.SetAudio(func(container string, volume float64, muted bool) bool {
 		a := js.Global().Get("wctrAudio")
 		if a.Type() == js.TypeObject && a.Get("setContainer").Type() == js.TypeFunction {
-			a.Call("setContainer", container, volume, muted)
+			// Only an explicit false is a refusal: an older page returns nothing.
+			r := a.Call("setContainer", container, volume, muted)
+			return !(r.Type() == js.TypeBoolean && !r.Bool())
 		}
+		return true
 	})
 	// Input for a surface's guest (go-wasmcontainers/gpu, webgpu.SurfaceInput):
 	// pointers in surface pixels, keys with KeyboardEvent.code and their text.

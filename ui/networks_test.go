@@ -71,7 +71,7 @@ func TestNetworksView(t *testing.T) {
 
 	// A container on lab: the network lists it, its detail lists the network.
 	r.s.Modifiers(webcanvas.Modifiers{Alt: true})
-	r.s.KeyDown("5")
+	r.s.KeyDown("6")
 	r.s.Modifiers(webcanvas.Modifiers{})
 	r.click("terminal")
 	r.typeText("wctr run -d --name web --network lab clock -interval 20ms")

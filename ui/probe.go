@@ -58,6 +58,11 @@ type Probe struct {
 	Memory      float64
 	CPU         string
 	Dark        bool
+	// TopologyNodes are the graph's nodes ("<kind> <label> | <cluster>"),
+	// TopologyEdges the edges' labels, TopologyDetail the detail pane's lines,
+	// TopologyZoom the graph's zoom in percent.
+	TopologyNodes, TopologyEdges, TopologyDetail []string
+	TopologyZoom                                 int
 }
 
 func screenText(s *vt.Screen) string {
@@ -82,6 +87,9 @@ func (s *Scene) named() map[string]toolkit.Widget {
 		"networks.table": s.nTable, "networks.name": s.nName, "networks.create": s.nCreate, "networks.remove": s.nRemove,
 		"networks.inspect": s.nInspect, "class.button": s.classBtn, "class.relay": s.jRelay, "class.name": s.jName,
 		"class.code": s.jCode, "class.ok": s.jOK, "class.change": s.jChange, "class.cancel": s.jCancel,
+		"topology.graph": s.tGraph, "topology.detail": s.tDetail, "topology.zoomout": s.tZoomOut, "topology.zoomin": s.tZoomIn,
+		"topology.fit": s.tFit, "topology.mute": s.tMute, "topology.muteproject": s.tMuteProject, "topology.muteall": s.tMuteAll,
+		"topology.import": s.tImport, "topology.export": s.tExport,
 	}
 	for i, e := range s.runFields {
 		m["run."+[]string{"image", "name", "command", "env", "entrypoint", "workdir", "memory", "volumes"}[i]] = e
@@ -155,6 +163,8 @@ func (s *Scene) Probe() Probe {
 	}
 	p.Shell = screenText(s.shellTerm.Screen())
 	p.ShellLine, p.ShellStatus = a.ExecShell.Line.Get(), a.ExecShell.Status.Get()
+	p.TopologyNodes, p.TopologyEdges = s.topologyProbe()
+	p.TopologyDetail, p.TopologyZoom = append([]string(nil), s.tDetail.Items...), s.tGraph.Zoom().Get()
 	p.Mounts = a.Detail.Mounts.Slice()
 	p.Memory, p.CPU = a.Detail.Memory.Get(), a.Detail.CPU.Get()
 	return p

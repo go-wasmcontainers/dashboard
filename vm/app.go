@@ -30,13 +30,14 @@ const (
 	ViewImages
 	ViewVolumes
 	ViewNetworks
+	ViewTopology
 	ViewTerminal
 	ViewSurfaces
 	NumViews
 )
 
 // ViewNames are the navigation labels.
-var ViewNames = [NumViews]string{"Containers", "Images", "Volumes", "Networks", "Terminal", "Surfaces"}
+var ViewNames = [NumViews]string{"Containers", "Images", "Volumes", "Networks", "Topology", "Terminal", "Surfaces"}
 
 // PollInterval is how often the dashboard refreshes when the engine has
 // no event stream.
@@ -68,8 +69,13 @@ type App struct {
 	Networks   *Networks
 	Class      *Class
 	Surfaces   *Surfaces
-	Detail     *Detail
-	Terminal   *Terminal
+	// Sound is the one store of sound levels, shared by the panes and the
+	// topology graph.
+	Sound *Sound
+	// Topology is the graph of the networks and their containers.
+	Topology *Topology
+	Detail   *Detail
+	Terminal *Terminal
 	// ExecShell is the shell inside the shown container (`wctr exec -it`).
 	ExecShell *ExecShell
 
@@ -102,6 +108,8 @@ func NewApp(eng engine.Engine, cli *CLI, post func(func())) *App {
 	a.Volumes = newVolumes(a)
 	a.Networks = newNetworks(a)
 	a.Class = newClass(a)
+	a.Topology = newTopology(a)
+	a.Sound = newSound()
 	a.Surfaces = newSurfaces(a)
 	a.Detail = newDetail(a)
 	a.Terminal = newTerminal(a)
@@ -124,8 +132,10 @@ type snapshot struct {
 	volErr     error
 	networks   []engine.Network
 	netErr     error
-	df         *engine.DiskUsage
-	err        error
+	// egress is each network's egress, read from its inspect document.
+	egress map[string]Egress
+	df     *engine.DiskUsage
+	err    error
 }
 
 // Refresh re-reads the engine in the background and applies what changed.
@@ -179,6 +189,24 @@ func (a *App) read(ctx context.Context) snapshot {
 	}
 	s.volumes, s.volErr = a.eng.Volumes(ctx)
 	s.networks, s.netErr = a.eng.Networks(ctx)
+	if s.netErr == nil {
+		s.egress = map[string]Egress{}
+		for i, n := range s.networks {
+			if i >= MaxTopoNetworks {
+				break
+			}
+			// An engine from v0.52.0 types the egress in the list itself.
+			if e, ok := EgressOf(n); ok {
+				s.egress[n.Name] = e
+				continue
+			}
+			// An older engine: read the inspect document. A network that
+			// cannot be inspected has no egress reported.
+			if raw, err := a.eng.NetworkInspect(ctx, n.Name); err == nil {
+				s.egress[n.Name] = ParseEgress(raw)
+			}
+		}
+	}
 	if df, err := a.eng.DiskUsage(ctx); err == nil {
 		s.df = &df
 	}
@@ -198,6 +226,7 @@ func (a *App) apply(s snapshot) {
 	a.Images.apply(s.images, now)
 	a.Volumes.apply(s.volumes, s.volErr, s.version.Version, s.df)
 	a.Networks.apply(s.networks, s.netErr, s.version.Version)
+	a.Topology.apply(s.containers, s.networks, s.egress)
 	a.Surfaces.publish() // container names, and frame rates that fell to 0
 	a.Detail.refresh()
 	running := 0

@@ -135,6 +135,8 @@ func (s *Scene) layout() {
 		s.vInspect.SetBounds(rect{X: body.X, Y: iy, W: body.W, H: body.Y + body.H - iy})
 	case vm.ViewNetworks:
 		s.layoutNetworks(bar, body)
+	case vm.ViewTopology:
+		s.layoutTopology(bar, body)
 	case vm.ViewTerminal:
 		s.term.SetBounds(c)
 	case vm.ViewSurfaces:
@@ -163,6 +165,8 @@ func (s *Scene) widgets() []toolkit.Widget {
 		out = append(out, s.vName, s.vCreate, s.vRemove, s.vForce, s.vPrune, s.vAll, s.vTable, s.vInspect)
 	case vm.ViewNetworks:
 		out = append(out, s.networkWidgets()...)
+	case vm.ViewTopology:
+		out = append(out, s.topologyWidgets()...)
 	case vm.ViewTerminal:
 		out = append(out, s.term)
 	case vm.ViewSurfaces:
@@ -191,6 +195,8 @@ func (s *Scene) visible() []toolkit.Widget {
 		out = append(out, s.vMsg, s.vNotice)
 	case vm.ViewNetworks:
 		out = append(out, s.networkLabels()...)
+	case vm.ViewTopology:
+		out = append(out, s.topologyLabels()...)
 	case vm.ViewSurfaces:
 		out = append(out, s.surfaceLabels()...)
 	}
@@ -504,7 +510,7 @@ func (s *Scene) char(c string) bool {
 // KeyDown implements webcanvas.App. The terminal, when it has focus, gets
 // every key it claims (Ctrl-C/D/L/R/W/U, arrows, Tab, ...) before any
 // global shortcut; the shortcuts are F6 (next region), Tab / Shift-Tab
-// (next / previous control) and Alt+1..6 (views). The shell's terminal,
+// (next / previous control) and Alt+1..7 (views). The shell's terminal,
 // on the detail's Shell tab, counts as focused when the detail is. A
 // surface pane with the focus is like a terminal: its guest gets every key
 // but F6, which leaves it.
