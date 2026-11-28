@@ -169,6 +169,34 @@ func TestRelayTextIsQuotedAndLabelled(t *testing.T) {
 	}
 }
 
+// Only a container of a compose project selects a project; a network or a
+// standalone container never does, whatever cluster text they carry.
+func TestSelectedProjectOnlyForProjectContainers(t *testing.T) {
+	a := &App{Sound: newSound()}
+	tp := newTopology(a)
+	tp.graph = Graph{Nodes: []TopoNode{
+		{ID: "c:1", Kind: TopoContainer, Cluster: "shop"},
+		{ID: "c:2", Kind: TopoContainer, Cluster: standaloneCluster},
+		{ID: "n:3", Kind: TopoNetwork, Cluster: "shop"},
+	}}
+	for sel, want := range map[string]string{"node:c:1": "shop", "node:c:2": "", "node:n:3": "", "node:zz": "", "edge:x": ""} {
+		tp.Selected.Set(sel)
+		if got := tp.SelectedProject(); got != want {
+			t.Errorf("%s: project %q, want %q", sel, got, want)
+		}
+	}
+}
+
+// With no page compose support an export does nothing and says nothing.
+func TestExportWithoutPageIsSilent(t *testing.T) {
+	a := &App{Sound: newSound()}
+	tp := newTopology(a)
+	tp.Export()
+	if tp.Status.Get() != "" {
+		t.Errorf("status %q", tp.Status.Get())
+	}
+}
+
 // H10: a wildcard or empty bind address is shown as the loopback address the
 // tab reaches, a specific one as itself.
 func TestPublishedAddressMapping(t *testing.T) {
