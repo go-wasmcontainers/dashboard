@@ -1,0 +1,447 @@
+package vm
+
+import (
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/go-wasmcontainers/engine/api"
+	"github.com/go-widgets/mvvm"
+
+	"github.com/go-wasmcontainers/dashboard/engine"
+)
+
+// Bounds on what the topology draws: a page with more is truncated and says so.
+const (
+	MaxTopoNetworks   = 64
+	MaxTopoContainers = 256
+	maxTopoEdges      = 2048
+	maxTopoPorts      = 16 // port badges per container
+	maxEgressJSON     = 1 << 20
+)
+
+// Labels and names the projection reads.
+const (
+	composeProjectLabel = "com.docker.compose.project"
+	standaloneCluster   = "standalone"
+	hostNodeID          = "g:host"
+	internetNodeID      = "g:internet"
+)
+
+// TopoKind is what a node of the topology stands for.
+type TopoKind int
+
+const (
+	// TopoContainer is a container.
+	TopoContainer TopoKind = iota
+	// TopoNetwork is a network, drawn as a hub its containers attach to.
+	TopoNetwork
+	// TopoGateway is the edge of the picture: this browser tab (published
+	// ports come in through it) or the Internet (egress goes out through it).
+	TopoGateway
+)
+
+// TopoEdgeState says how an edge is drawn.
+type TopoEdgeState int
+
+const (
+	// EdgeNormal is a live path.
+	EdgeNormal TopoEdgeState = iota
+	// EdgeDenied is a path the engine refuses (no egress).
+	EdgeDenied
+	// EdgeIdle is a path that exists but is down, or not known.
+	EdgeIdle
+)
+
+// TopoNode is one node of the graph.
+type TopoNode struct {
+	ID, Label, Cluster, Category string
+	Kind                         TopoKind
+	// Container is the container's full ID, the audio key (TopoContainer).
+	Container string
+	// Network is the network's name (TopoNetwork).
+	Network string
+	// State is the container's state ("running", "exited"…).
+	State string
+	// Badges are short chips: the ports a container exposes but does not publish.
+	Badges []string
+}
+
+// TopoEdge is one directed edge: an attachment (container to network), a
+// published port (this tab to container) or an egress path (network to Internet).
+type TopoEdge struct {
+	ID, From, To, Label string
+	State               TopoEdgeState
+}
+
+// Graph is the topology as data: no toolkit type, so it is tested without a screen.
+type Graph struct {
+	// Clusters are the cluster names in drawing order (projects, then standalone).
+	Clusters []string
+	Nodes    []TopoNode
+	Edges    []TopoEdge
+	// Note says what was left out (a bound was reached), or "".
+	Note string
+}
+
+// NetworkMembers are the full IDs of the containers attached to a network.
+func (g Graph) NetworkMembers(network string) []string {
+	var out []string
+	hub := "n:" + network
+	for _, e := range g.Edges {
+		if e.To == hub && strings.HasPrefix(e.ID, "a:") {
+			out = append(out, strings.TrimPrefix(e.From, "c:"))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ProjectMembers are the full IDs of the containers of a compose project (or
+// of "standalone").
+func (g Graph) ProjectMembers(project string) []string {
+	var out []string
+	for _, n := range g.Nodes {
+		if n.Kind == TopoContainer && n.Cluster == project {
+			out = append(out, n.Container)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Node returns the node with the id.
+func (g Graph) Node(id string) (TopoNode, bool) {
+	for _, n := range g.Nodes {
+		if n.ID == id {
+			return n, true
+		}
+	}
+	return TopoNode{}, false
+}
+
+// Egress is what a network says of its way out, decoded from the network's
+// inspect document. An engine that does not report it leaves Policy "": the
+// graph then draws "no egress reported", it does not fail.
+type Egress struct {
+	// Policy is "none", "internal", "gateway" or "unknown" ("" when absent).
+	Policy string
+	Reason string
+	// GatewayKind and GatewayState describe the gateway of a "gateway" policy.
+	GatewayKind, GatewayState string
+	// Allowed is how many host:port pairs the allowlist holds.
+	Allowed int
+	// Operator is the label the relay's operator set; DeniedHost and
+	// DeniedReason are the last destination the relay refused. All three come
+	// from the relay, a party outside the engine: they are plain text, cleaned
+	// and bounded to maxRelayText runes, and nothing of them is interpreted.
+	Operator, DeniedHost, DeniedReason string
+}
+
+// maxRelayText bounds each string the relay supplies (operator, denial).
+const maxRelayText = 48
+
+// ParseEgress decodes the Egress object of a network inspect document. It
+// never fails: a document that is empty, oversized, not JSON, or without an
+// Egress object yields the zero Egress ("no egress reported"). Every string is
+// cleaned for display.
+func ParseEgress(raw []byte) Egress {
+	if len(raw) == 0 || len(raw) > maxEgressJSON {
+		return Egress{}
+	}
+	var doc struct {
+		Egress *struct {
+			Policy  string `json:"Policy"`
+			Reason  string `json:"Reason"`
+			Gateway *struct {
+				Kind     string `json:"Kind"`
+				Operator string `json:"Operator"`
+				State    string `json:"State"`
+			} `json:"Gateway"`
+			Allowlist []json.RawMessage `json:"Allowlist"`
+			Counters  struct {
+				LastDenied *struct {
+					Host   string `json:"Host"`
+					Reason string `json:"Reason"`
+				} `json:"LastDenied"`
+			} `json:"Counters"`
+		} `json:"Egress"`
+	}
+	if json.Unmarshal(raw, &doc) != nil || doc.Egress == nil {
+		return Egress{}
+	}
+	e := Egress{Policy: Clean(strings.ToLower(doc.Egress.Policy), 16), Reason: Clean(doc.Egress.Reason, 120), Allowed: len(doc.Egress.Allowlist)}
+	if g := doc.Egress.Gateway; g != nil {
+		e.GatewayKind, e.GatewayState = Clean(g.Kind, 32), Clean(strings.ToLower(g.State), 32)
+		e.Operator = Clean(g.Operator, maxRelayText)
+	}
+	if d := doc.Egress.Counters.LastDenied; d != nil {
+		e.DeniedHost, e.DeniedReason = Clean(d.Host, maxRelayText), Clean(d.Reason, maxRelayText)
+	}
+	return e
+}
+
+// PortBinding is one entry of a container summary's Ports.
+type PortBinding struct {
+	IP              string
+	Private, Public int
+	Proto           string
+}
+
+// ParsePorts decodes a summary's Ports (the engine sends api.Port values, a
+// remote one decodes to maps): entries it cannot read are skipped, at most 256 kept.
+func ParsePorts(list []any) []PortBinding {
+	var out []PortBinding
+	for _, x := range list {
+		if len(out) >= 256 {
+			break
+		}
+		b, err := json.Marshal(x)
+		if err != nil {
+			continue
+		}
+		var p api.Port
+		if json.Unmarshal(b, &p) != nil || p.PrivatePort == 0 {
+			continue
+		}
+		proto := Clean(p.Type, 8)
+		if proto == "" {
+			proto = "tcp"
+		}
+		out = append(out, PortBinding{IP: Clean(p.IP, 64), Private: int(p.PrivatePort), Public: int(p.PublicPort), Proto: proto})
+	}
+	return out
+}
+
+// TopoInput is what the graph is built from.
+type TopoInput struct {
+	Containers []api.ContainerSummary
+	Networks   []engine.Network
+	// Egress is each network's egress, by name (absent: not reported).
+	Egress map[string]Egress
+}
+
+func containerName(c api.ContainerSummary) string {
+	name := ""
+	if len(c.Names) > 0 {
+		name = strings.TrimPrefix(c.Names[0], "/")
+	}
+	if name == "" {
+		name = ShortID(c.ID)
+	}
+	return Clean(name, 64)
+}
+
+// BuildGraph projects containers and networks onto a graph: networks are hubs,
+// attachments are edges, projects are clusters; published ports come in from
+// "This tab", and each network reaches the Internet through its egress.
+func BuildGraph(in TopoInput) Graph {
+	var g Graph
+	var notes []string
+
+	cs := in.Containers
+	if len(cs) > MaxTopoContainers {
+		notes = append(notes, fmt.Sprintf("%d of %d containers shown", MaxTopoContainers, len(cs)))
+		cs = cs[:MaxTopoContainers]
+	}
+	nets := append([]engine.Network(nil), in.Networks...)
+	sort.Slice(nets, func(i, j int) bool { return nets[i].Name < nets[j].Name })
+	if len(nets) > MaxTopoNetworks {
+		notes = append(notes, fmt.Sprintf("%d of %d networks shown", MaxTopoNetworks, len(nets)))
+		nets = nets[:MaxTopoNetworks]
+	}
+
+	// Containers, in the order of their clusters.
+	type cn struct {
+		sum  api.ContainerSummary
+		node TopoNode
+	}
+	byID := map[string]*cn{}
+	var order []*cn
+	projects := map[string]bool{}
+	for _, c := range cs {
+		if c.ID == "" {
+			continue
+		}
+		cluster := Clean(c.Labels[composeProjectLabel], 64)
+		if cluster == "" {
+			cluster = standaloneCluster
+		}
+		if cluster != standaloneCluster {
+			projects[cluster] = true
+		}
+		n := TopoNode{ID: "c:" + c.ID, Label: containerName(c), Cluster: cluster, Category: cluster, Kind: TopoContainer, Container: c.ID, State: Clean(c.State, 16)}
+		x := &cn{sum: c, node: n}
+		byID[c.ID] = x
+		order = append(order, x)
+	}
+	for p := range projects {
+		g.Clusters = append(g.Clusters, p)
+	}
+	sort.Strings(g.Clusters)
+	g.Clusters = append(g.Clusters, standaloneCluster)
+	rank := map[string]int{}
+	for i, c := range g.Clusters {
+		rank[c] = i
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := order[i].node, order[j].node
+		if rank[a.Cluster] != rank[b.Cluster] {
+			return rank[a.Cluster] < rank[b.Cluster]
+		}
+		return a.Label < b.Label
+	})
+
+	find := func(id string) *cn {
+		if x, ok := byID[id]; ok {
+			return x
+		}
+		for full, x := range byID {
+			if ShortID(full) == ShortID(id) {
+				return x
+			}
+		}
+		return nil
+	}
+
+	addEdge := func(e TopoEdge) {
+		if len(g.Edges) < maxTopoEdges {
+			g.Edges = append(g.Edges, e)
+		}
+	}
+
+	needHost, needInternet := false, false
+	// Networks: a hub each, an attachment edge per member, an egress edge.
+	for _, nw := range nets {
+		hub := TopoNode{ID: "n:" + nw.Name, Label: Clean(nw.Name, 64), Category: "network", Kind: TopoNetwork, Network: nw.Name}
+		g.Nodes = append(g.Nodes, hub)
+		ids := make([]string, 0, len(nw.Containers))
+		for id := range nw.Containers {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			x := find(id)
+			if x == nil {
+				continue
+			}
+			addEdge(TopoEdge{ID: "a:" + nw.Name + ":" + x.sum.ID, From: x.node.ID, To: hub.ID, Label: Clean(nw.Containers[id].IPv4Address, 64)})
+		}
+		eg := in.Egress[nw.Name]
+		if eg.DeniedHost != "" {
+			d := "last denied " + eg.DeniedHost
+			if eg.DeniedReason != "" {
+				d += " (" + eg.DeniedReason + ")"
+			}
+			g.Nodes[len(g.Nodes)-1].Badges = []string{d}
+		}
+		edge := egressEdge(nw, eg)
+		needInternet = true
+		addEdge(edge)
+	}
+
+	// Published ports and host networking come in through "This tab".
+	for _, x := range order {
+		var badges []string
+		exposed := map[string]bool{}
+		published := map[string]bool{}
+		for _, p := range ParsePorts(x.sum.Ports) {
+			key := fmt.Sprintf("%d/%s", p.Private, p.Proto)
+			if p.Public == 0 {
+				exposed[key] = true
+				continue
+			}
+			published[key] = true
+			ip := p.IP
+			if ip == "" || ip == "0.0.0.0" || ip == "::" {
+				ip = "127.0.0.1"
+			}
+			needHost = true
+			addEdge(TopoEdge{ID: fmt.Sprintf("p:%s:%s:%d", x.sum.ID, key, p.Public), From: hostNodeID, To: x.node.ID,
+				Label: fmt.Sprintf("%s:%d -> %s", ip, p.Public, key)})
+		}
+		for k := range exposed {
+			if !published[k] {
+				badges = append(badges, k)
+			}
+		}
+		sort.Strings(badges)
+		if len(badges) > maxTopoPorts {
+			badges = append(badges[:maxTopoPorts], fmt.Sprintf("+%d", len(badges)-maxTopoPorts))
+		}
+		x.node.Badges = badges
+		if x.sum.HostConfig.NetworkMode == "host" {
+			needHost = true
+			addEdge(TopoEdge{ID: "h:" + x.sum.ID, From: hostNodeID, To: x.node.ID, Label: "host network"})
+		}
+	}
+	if needHost {
+		g.Nodes = append(g.Nodes, TopoNode{ID: hostNodeID, Label: "This tab", Category: "gateway", Kind: TopoGateway})
+	}
+	if needInternet {
+		g.Nodes = append(g.Nodes, TopoNode{ID: internetNodeID, Label: "Internet", Category: "gateway", Kind: TopoGateway})
+	}
+	for _, x := range order {
+		g.Nodes = append(g.Nodes, x.node)
+	}
+	g.Note = strings.Join(notes, "; ")
+	return g
+}
+
+// egressEdge is the edge from a network to the Internet, and how it is drawn.
+func egressEdge(nw engine.Network, e Egress) TopoEdge {
+	te := TopoEdge{ID: "e:" + nw.Name, From: "n:" + nw.Name, To: internetNodeID}
+	switch {
+	case e.Policy == "gateway":
+		te.Label = "egress via gateway"
+		if e.GatewayKind != "" {
+			te.Label = "egress via " + e.GatewayKind + " gateway"
+		}
+		if e.Operator != "" {
+			te.Label += " (" + e.Operator + ")"
+		}
+		if e.Allowed > 0 {
+			te.Label += fmt.Sprintf(", %d hosts allowed", e.Allowed)
+		}
+		if e.GatewayState != "" && e.GatewayState != "up" && e.GatewayState != "running" && e.GatewayState != "ready" {
+			te.State = EdgeIdle
+			te.Label += " (" + e.GatewayState + ")"
+		}
+	case e.Policy == "unknown":
+		te.State, te.Label = EdgeIdle, "egress unknown"
+	case e.Policy == "internal" || nw.Internal:
+		te.State, te.Label = EdgeDenied, "internal only"
+	case e.Policy == "none":
+		te.State, te.Label = EdgeDenied, "no egress"
+	default:
+		te.State, te.Label = EdgeDenied, "no egress reported"
+	}
+	if e.Reason != "" && te.State != EdgeNormal {
+		te.Label += ": " + e.Reason
+	}
+	return te
+}
+
+// Topology is the Topology view's viewmodel: the graph, rebuilt on every
+// refresh, and what is selected in it.
+type Topology struct {
+	app   *App
+	graph Graph
+	// Revision counts rebuilds (the view redraws on it).
+	Revision *mvvm.Observable[int]
+	// Selected is "node:<id>", "edge:<id>" or "".
+	Selected *mvvm.Observable[string]
+}
+
+func newTopology(a *App) *Topology {
+	return &Topology{app: a, Revision: mvvm.NewObservable(0), Selected: mvvm.NewObservable("")}
+}
+
+// Graph is the current graph.
+func (t *Topology) Graph() Graph { return t.graph }
+
+func (t *Topology) apply(cs []api.ContainerSummary, nets []engine.Network, egress map[string]Egress) {
+	t.graph = BuildGraph(TopoInput{Containers: cs, Networks: nets, Egress: egress})
+	t.Revision.Set(t.Revision.Get() + 1)
+}
