@@ -442,3 +442,38 @@ func TestTopologyDetailAndCompose(t *testing.T) {
 		t.Errorf("last command = %q", a.LastCommand.Get())
 	}
 }
+
+// The detail of an edge is its own label, not another edge's; a selection
+// that is not a node names no node.
+func TestTopologyEdgeSelection(t *testing.T) {
+	a := topoApp(t)
+	g := a.Topology.Graph()
+	if got := g.DetailLines("edge:a:front:aaaa1111"); !reflect.DeepEqual(got, []string{"Edge 10.0.0.2/24"}) {
+		t.Errorf("first edge = %v", got)
+	}
+	if got := g.DetailLines("edge:a:front:bbbb2222"); !reflect.DeepEqual(got, []string{"Edge 10.0.0.3/24"}) {
+		t.Errorf("second edge = %v", got)
+	}
+	for _, sel := range []string{"edge:a:front:aaaa1111", "c:aaaa1111", "n:front", "nodes:c:aaaa1111", ""} {
+		a.Topology.Selected.Set(sel)
+		if n, ok := a.Topology.SelectedNode(); ok {
+			t.Errorf("selection %q names node %+v", sel, n)
+		}
+	}
+	a.Topology.Selected.Set("node:c:aaaa1111")
+	if n, ok := a.Topology.SelectedNode(); !ok || n.Container != "aaaa1111" {
+		t.Errorf("node selection = %+v %v", n, ok)
+	}
+}
+
+// ParseEgress of anything that carries no Egress object is the zero value.
+func TestParseEgressAbsent(t *testing.T) {
+	for _, raw := range []string{`not json`, `{"x":1}`, `{"Egress":null}`, `[1]`, `{"Egress":`} {
+		if e := ParseEgress([]byte(raw)); !reflect.DeepEqual(e, Egress{}) {
+			t.Errorf("ParseEgress(%q) = %+v", raw, e)
+		}
+	}
+	if e := ParseEgress([]byte(`{"Egress":{"Policy":"none"}}`)); e.Policy != "none" {
+		t.Errorf("policy = %q", e.Policy)
+	}
+}

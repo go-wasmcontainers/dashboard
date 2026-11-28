@@ -134,3 +134,72 @@ func TestTopologyCompose(t *testing.T) {
 		t.Errorf("exported %v without a project", exported)
 	}
 }
+
+// A stopped container is drawn grey; a running one and a network keep the
+// palette.
+func TestTopologyNodeColor(t *testing.T) {
+	r := newRig(t)
+	r.s.tState = map[string]string{"c:run": "running", "c:stop": "exited"}
+	for id, want := range map[string]bool{"c:run": false, "c:stop": true, "n:lab": false} {
+		if _, got := r.s.tGraph.NodeColor(toolkit.GraphNode{ID: id}); got != want {
+			t.Errorf("%s: grey = %v, want %v", id, got, want)
+		}
+	}
+}
+
+// The helpers that decide whether the widget's model must be rebuilt, on both
+// sides of every comparison.
+func TestTopologySameness(t *testing.T) {
+	c1 := toolkit.GraphCluster{ID: "a", Label: "a"}
+	c2 := toolkit.GraphCluster{ID: "b", Label: "b"}
+	if !sameClusters([]toolkit.GraphCluster{c1, c2}, []toolkit.GraphCluster{c1, c2}) ||
+		sameClusters([]toolkit.GraphCluster{c1, c2}, []toolkit.GraphCluster{c1}) ||
+		sameClusters([]toolkit.GraphCluster{c1, c2}, []toolkit.GraphCluster{c1, c1}) {
+		t.Error("sameClusters")
+	}
+
+	n := toolkit.GraphNode{ID: "x", Cluster: "k", Shape: toolkit.GraphShapeBox}
+	for _, d := range []toolkit.GraphNode{{ID: "y", Cluster: "k"}, {ID: "x", Cluster: "z"}, {ID: "x", Cluster: "k", Shape: toolkit.GraphShapeHub}} {
+		if sameIDs([]toolkit.GraphNode{n}, []toolkit.GraphNode{d}) {
+			t.Errorf("sameIDs equal for %+v", d)
+		}
+	}
+	if !sameIDs([]toolkit.GraphNode{n, n}, []toolkit.GraphNode{n, n}) || sameIDs([]toolkit.GraphNode{n}, []toolkit.GraphNode{n, n}) {
+		t.Error("sameIDs")
+	}
+
+	b1, b2 := toolkit.GraphBadge{Text: "1"}, toolkit.GraphBadge{Text: "2"}
+	t1, t2 := toolkit.GraphToggle{ID: "s", On: true}, toolkit.GraphToggle{ID: "s"}
+	base := toolkit.GraphNode{Label: "l", Badges: []toolkit.GraphBadge{b1}, Toggles: []toolkit.GraphToggle{t1}}
+	if !sameNode(base, base) {
+		t.Error("sameNode of itself")
+	}
+	for name, d := range map[string]toolkit.GraphNode{
+		"label":    {Label: "m", Badges: base.Badges, Toggles: base.Toggles},
+		"category": {Label: "l", Category: "x", Badges: base.Badges, Toggles: base.Toggles},
+		"badge":    {Label: "l", Badges: []toolkit.GraphBadge{b2}, Toggles: base.Toggles},
+		"badges":   {Label: "l", Toggles: base.Toggles},
+		"toggle":   {Label: "l", Badges: base.Badges, Toggles: []toolkit.GraphToggle{t2}},
+		"toggles":  {Label: "l", Badges: base.Badges},
+	} {
+		if sameNode(base, d) {
+			t.Errorf("sameNode equal when the %s differs", name)
+		}
+	}
+}
+
+// A hub shows a speaker only when one of its containers has a sound stream.
+func TestTopologyHubSpeaker(t *testing.T) {
+	r := newRig(t)
+	r.app.Sound.SetActive([]string{"nobody"})
+	if anyActive(r.app.Sound, []string{"x", "y"}) {
+		t.Error("nothing is active")
+	}
+	r.app.Sound.SetActive([]string{"y"})
+	if !anyActive(r.app.Sound, []string{"x", "y"}) {
+		t.Error("y is active")
+	}
+	if anyActive(r.app.Sound, nil) {
+		t.Error("no members")
+	}
+}
