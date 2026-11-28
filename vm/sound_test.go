@@ -272,7 +272,7 @@ func TestSoundSetMutedKeepsRefusal(t *testing.T) {
 	if got := s.Refused.Get(); !strings.Contains(got, "not applied to a ") {
 		t.Errorf("refusal = %q", got)
 	}
-	s.SetMuted([]string{"b"}, true)
+	s.SetMuted([]string{"", "b"}, true) // an empty name is skipped, not refused
 	if s.Refused.Get() != "" {
 		t.Errorf("a clean call kept a stale refusal: %q", s.Refused.Get())
 	}
